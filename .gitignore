@@ -1,5 +1,9 @@
-# Claude Code developer notes — local only, not for version control
+# Local-only agent guidance (not published; comments in tracked files must not
+# reference these)
 CLAUDE.md
+RULES.md
+task.md
+PLAN.md
 .claude/
 
 # Build directories
@@ -15,15 +19,19 @@ Makefile
 *.cmake
 !CMakeLists.txt
 
-# JUCE generated
-JuceLibraryCode/
-
 # Compiled output
 *.o
 *.a
 *.so
 *.so.*
 *.vst3
+
+# Release archives produced by scripts/makedist-linux.sh — these are attached
+# to GitHub releases, not committed.
+dist/
+*.tar.gz
+*.tar.xz
+*.zip
 
 # Debug info
 *.pdb

@@ -1,6 +1,21 @@
+# Style for code WE author in this repo (src/, standalone/). Matches the sibling NAMku /
+# VST3-haiku projects, so files ported from the reference implementation stay directly
+# diffable against it: 4-space indentation, Linux braces (function brace on its own line,
+# control braces attached), no tabs.
+#
+# NEVER run clang-format over imported upstream trees (the VST3 SDK, the
+# NeuralAmpModelerCore / AudioDSPTools / eigen submodules, deps/, or vendored headers such
+# as NanoSVG) — imported files keep their upstream style so diffs stay reviewable.
 BasedOnStyle: LLVM
-IndentWidth: 2
-ColumnLimit: 90
-BreakBeforeBraces: Attach
-AllowShortFunctionsOnASingleLine: Inline
-AllowShortIfStatementsOnASingleLine: Never
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ColumnLimit: 100
+BreakBeforeBraces: Linux
+PointerAlignment: Right
+AllowShortFunctionsOnASingleLine: None
+AllowShortIfStatementsOnASingleLine: false
+AllowShortLoopsOnASingleLine: false
+SortIncludes: false
+IndentCaseLabels: true
+AccessModifierOffset: -4

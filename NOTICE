@@ -1,21 +1,34 @@
-Gateway Linux VST3 Plugin
-Copyright (C) 2026 rations
+NAMix — Neural Amp Modeler VST3 plug-in for Linux
+Copyright (c) 2026 rations
 
 This project is based on NeuralAmpModelerPlugin by Steven Atkinson.
 The original project is available at:
   https://github.com/sdatkinson/NeuralAmpModelerPlugin
 
+NAMix itself (the VST3 integration and editor under src/) is released under the
+MIT Licence; see LICENSE. The third-party components it links, vendors and
+redistributes are covered by the licences below.
+
+-------------------------------------------------------------------------------
+
 The following components are used under the MIT Licence:
 
-  NeuralAmpModelerPlugin
-  NeuralAmpModelerCore
-  AudioDSPTools
-  Copyright (C) 2022 Steven Atkinson
+  NeuralAmpModelerCore      https://github.com/sdatkinson/NeuralAmpModelerCore
+  AudioDSPTools             https://github.com/sdatkinson/AudioDSPTools
+  ToneStack                 (from NeuralAmpModelerPlugin)
+  Copyright (c) 2022, 2023 Steven Atkinson
 
-  This includes the DSP source code (ToneStack, architecture.hpp, NAM core,
-  AudioDSPTools) and the graphical assets embedded in this binary
-  (resources/img/Background.jpg, KnobBackground.png, MeterBackground.png,
-  FileBackground.png, InputLevelBackground.png, Lines.png, SlimmableIcon.svg).
+  This covers the NAM core DSP, the AudioDSPTools DSP library, and the tone
+  stack source copied from NeuralAmpModelerPlugin (deps/tonestack/ToneStack.h,
+  ToneStack.cpp). The per-library licence text is also retained in
+  NeuralAmpModelerCore/LICENSE and AudioDSPTools/LICENSE.
+
+  VST 3 SDK 3.8.0        https://github.com/steinbergmedia/vst3sdk
+  Copyright (c) 2025 Steinberg Media Technologies GmbH
+
+  Since version 3.7.10 the SDK is distributed under the MIT Licence; the full
+  text is retained in vst3sdk/LICENSE.txt. VST is a trademark of Steinberg
+  Media Technologies GmbH, registered in Europe and other countries.
 
   Permission is hereby granted, free of charge, to any person obtaining a copy
   of this software and associated documentation files (the "Software"), to deal
@@ -37,36 +50,62 @@ The following components are used under the MIT Licence:
 
 -------------------------------------------------------------------------------
 
-The following font is used under the SIL Open Font Licence 1.1:
+The following component is used under the zlib Licence:
 
-  Michroma-Regular.ttf
-  Copyright (C) 2011 James Grieshaber (james@grieshaber.com)
-  with Reserved Font Name "Michroma"
+  NanoSVG                   https://github.com/memononen/nanosvg
+  Copyright (c) 2013-14 Mikko Mononen
 
-  The font software may be used, modified and distributed freely so long as
-  it is not sold by itself. The font, with or without modification, may not
-  be bundled, embedded, redistributed, or sold with any software under a
-  different licence without permission of the copyright holder.
-
-  Full licence text: https://openfontlicense.org
+  Vendored as src/gfx/nanosvg/nanosvg.h and nanosvgrast.h, which rasterise the
+  plug-in's SVG icons at runtime. This is the same rasteriser the original
+  plug-in renders those icons with. The zlib licence text is retained in full
+  at the top of each header.
 
 -------------------------------------------------------------------------------
 
-The following font is used under the Apache Licence, Version 2.0:
+The following component is used under the Mozilla Public Licence 2.0:
 
-  Roboto-Regular.ttf
-  Copyright (C) 2011 Google Inc. All Rights Reserved.
+  Eigen                     https://gitlab.com/libeigen/eigen
 
-  Licensed under the Apache License, Version 2.0 (the "License"); you may not
-  use this file except in compliance with the License. You may obtain a copy
-  of the License at http://www.apache.org/licenses/LICENSE-2.0
+  The MPL 2.0 licence text is retained in eigen/COPYING.MPL2.
 
 -------------------------------------------------------------------------------
 
-The following components are used under their respective licences:
+A note on AudioDSPTools' Lanczos resampler
+(AudioDSPTools/dsp/ResamplingContainer/):
 
-  JUCE                  https://github.com/juce-framework/JUCE
-                        GNU General Public Licence v3 / JUCE commercial licence
+  ResamplingContainer.h originates from iPlug2 and is covered by iPlug2's zlib-
+  style licence, reproduced in full at the top of that file.
 
-  Eigen                 https://gitlab.com/libeigen/eigen
-                        Mozilla Public Licence 2.0
+  Dependencies/LanczosResampler.h is derived from sst-basic-blocks, which as a
+  library is GPL-3.0-or-later. That file, however, carries an explicit licence
+  exception from its sole author granting use "in an MIT/BSD context as well as
+  a GPL3 context"; the exception is reproduced verbatim at the top of the file.
+  NAMix relies on that exception, so no GPL-licensed code enters this
+  distribution.
+
+-------------------------------------------------------------------------------
+
+System libraries linked at runtime, not redistributed here: Cairo (LGPL 2.1 /
+MPL 1.1, dynamically linked), FreeType (FTL / GPLv2 dual licence, dynamically
+linked under the FTL), fontconfig (MIT-style), libX11 (MIT), and — for the
+standalone build only — JACK (LGPL 2.1, dynamically linked).
+
+-------------------------------------------------------------------------------
+
+The editor art assets under resources/img/ are used under the MIT Licence:
+
+  NeuralAmpModelerPlugin    https://github.com/sdatkinson/NeuralAmpModelerPlugin
+  Copyright (c) 2022 Steven Atkinson
+
+  The panel backdrop, line overlay, knob face, file-row and meter backgrounds,
+  input-level field and slide-switch handle are imported from that project's
+  resources/img/ raster art, reused unmodified except for format normalisation
+  to 32-bit PNG. The ten icons (gear, cross, file, model, IR on/off, slimmable,
+  globe and the two arrows) are that project's own SVG files, copied verbatim
+  and rasterised at runtime. See gui/import_assets.sh.
+
+-------------------------------------------------------------------------------
+
+Bundled fonts (resources/fonts/): Michroma-Regular.ttf (SIL Open Font License
+1.1) and Roboto-Regular.ttf (Apache License 2.0) — the same typefaces the
+original plug-in uses for its title and body text.
