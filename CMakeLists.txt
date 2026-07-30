@@ -159,6 +159,16 @@ smtg_target_add_plugin_resources(NAMix
 
 target_compile_features(NAMix PUBLIC cxx_std_17)
 target_compile_options(NAMix PRIVATE -ffast-math -Wall)
+
+# AudioDSPTools' ResamplingContainer.h has an injected-class-name alias
+# ("using LanczosResampler = LanczosResampler<...>") that GCC rejects outright
+# while Clang accepts it. It reaches only this translation unit, via
+# resamplingnam.h, so the relaxation is scoped to that file rather than to the
+# whole target.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    set_source_files_properties(${NAMIX_ROOT}/src/namprocessor.cpp
+        PROPERTIES COMPILE_OPTIONS -fpermissive)
+endif()
 target_include_directories(NAMix PRIVATE ${NAMIX_ROOT}/src)
 
 target_link_libraries(NAMix

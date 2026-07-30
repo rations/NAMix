@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstdio>
 #include <cstdint>
 #include <vector>
@@ -28,8 +29,8 @@ namespace
 void rgbaToPremultipliedArgb(const uint8_t *src, unsigned char *dst, int w, int h, int dstStride)
 {
     for (int y = 0; y < h; ++y) {
-        uint32_t *out = reinterpret_cast<uint32_t *>(dst + static_cast<ptrdiff_t>(y) * dstStride);
-        const uint8_t *in = src + static_cast<ptrdiff_t>(y) * w * 4;
+        uint32_t *out = reinterpret_cast<uint32_t *>(dst + static_cast<std::ptrdiff_t>(y) * dstStride);
+        const uint8_t *in = src + static_cast<std::ptrdiff_t>(y) * w * 4;
         for (int x = 0; x < w; ++x) {
             const uint32_t r = in[0], g = in[1], b = in[2], a = in[3];
             // Rounded multiply-by-alpha: (v * a + 127) / 255.
