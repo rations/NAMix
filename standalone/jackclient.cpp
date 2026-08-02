@@ -7,8 +7,10 @@
 #include "pluginterfaces/vst/ivstcomponent.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
+#include <thread>
 
 using namespace Steinberg;
 
@@ -38,7 +40,7 @@ bool JackClient::open(const char *clientName, Vst::IAudioProcessor *processor,
     }
 
     mSampleRate = static_cast<double>(jack_get_sample_rate(mClient));
-    mBlockSize = static_cast<int>(jack_get_buffer_size(mClient));
+    mBlockSize.store(static_cast<int>(jack_get_buffer_size(mClient)), std::memory_order_relaxed);
 
     mInPort = jack_port_register(mClient, "in", JACK_DEFAULT_AUDIO_TYPE, JackPortIsInput, 0);
     mOutPorts[0] =
@@ -68,7 +70,7 @@ bool JackClient::open(const char *clientName, Vst::IAudioProcessor *processor,
         return false;
     }
 
-    mProcessData.numSamples = mBlockSize;
+    mProcessData.numSamples = mBlockSize.load(std::memory_order_relaxed);
     mProcessData.symbolicSampleSize = Vst::kSample32;
     mProcessData.inputParameterChanges = &mInputChanges;
     mProcessData.outputParameterChanges = &mOutputChanges;
@@ -78,6 +80,11 @@ bool JackClient::open(const char *clientName, Vst::IAudioProcessor *processor,
         close();
         return false;
     }
+    // Must be registered before jack_activate() (jack.h says so explicitly).
+    if (jack_set_buffer_size_callback(mClient, bufferSizeTrampoline, this) != 0)
+        fprintf(stderr, "NAMix: cannot install the JACK buffer-size callback - the processor "
+                        "will stay set up for the size it started with\n");
+
     if (jack_activate(mClient) != 0) {
         fprintf(stderr, "NAMix: cannot activate the JACK client\n");
         close();
@@ -100,7 +107,8 @@ bool JackClient::open(const char *clientName, Vst::IAudioProcessor *processor,
         jack_free(outs);
     }
 
-    printf("NAMix: JACK connected at %.0f Hz, %d frames\n", mSampleRate, mBlockSize);
+    printf("NAMix: JACK connected at %.0f Hz, %d frames\n", mSampleRate,
+           mBlockSize.load(std::memory_order_relaxed));
     return true;
 }
 
@@ -188,6 +196,61 @@ int JackClient::processTrampoline(jack_nframes_t nframes, void *arg)
 }
 
 //------------------------------------------------------------------------
+// JACK's notification thread, with the process cycle suspended. It would be
+// legal to do the whole reconfiguration here, but setupProcessing and
+// setActive are VST3 main-thread calls and the plug-in's message thread may be
+// in the middle of a load, so all this does is record the new size for the run
+// loop to act on.
+int JackClient::bufferSizeTrampoline(jack_nframes_t nframes, void *arg)
+{
+    static_cast<JackClient *>(arg)->mNewBlockSize.store(static_cast<int>(nframes),
+                                                        std::memory_order_release);
+    return 0;
+}
+
+//------------------------------------------------------------------------
+int JackClient::takeBufferSizeChange()
+{
+    const int size = mNewBlockSize.exchange(0, std::memory_order_acquire);
+    // JACK announces the size once at activation too; only a real move counts.
+    if (size <= 0 || size == mBlockSize.load(std::memory_order_relaxed))
+        return 0;
+    return size;
+}
+
+//------------------------------------------------------------------------
+bool JackClient::suspendProcessing()
+{
+    if (!mClient)
+        return true; // no audio thread to race with
+
+    mSuspended.store(true, std::memory_order_release);
+
+    // Two cycles, not one: the first may already have been inside process()
+    // when the flag went up, so only the second is guaranteed to have seen it.
+    const uint32_t start = mCycle.load(std::memory_order_acquire);
+    for (int attempt = 0; attempt < 200; ++attempt) { // ~2 s
+        if (mCycle.load(std::memory_order_acquire) - start >= 2)
+            return true;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+
+    // The audio thread is not running (a stopped server, or freewheeling).
+    // Say so and leave the processor alone rather than reconfiguring it
+    // underneath a callback that might still come back.
+    mSuspended.store(false, std::memory_order_release);
+    return false;
+}
+
+//------------------------------------------------------------------------
+void JackClient::resumeProcessing(int blockSize)
+{
+    if (blockSize > 0)
+        mBlockSize.store(blockSize, std::memory_order_relaxed);
+    mSuspended.store(false, std::memory_order_release);
+}
+
+//------------------------------------------------------------------------
 // JACK real-time thread. Nothing here allocates, locks, or logs.
 int JackClient::process(jack_nframes_t nframes)
 {
@@ -196,15 +259,21 @@ int JackClient::process(jack_nframes_t nframes)
     if (!outL || !outR)
         return 0;
 
-    if (!mProcessor) {
+    // Suspended: the UI thread is reconfiguring the processor and must not be
+    // raced. Silence is the honest output — a buffer-size change already puts
+    // a gap in the audio flow, and stale samples would be worse.
+    if (!mProcessor || mSuspended.load(std::memory_order_acquire)) {
         memset(outL, 0, nframes * sizeof(float));
         memset(outR, 0, nframes * sizeof(float));
+        mCycle.fetch_add(1, std::memory_order_release);
         return 0;
     }
 
     float *in = static_cast<float *>(jack_port_get_buffer(mInPort, nframes));
-    if (!in)
+    if (!in) {
+        mCycle.fetch_add(1, std::memory_order_release);
         return 0;
+    }
 
     mInputChanges.clearQueue();
     mOutputChanges.clearQueue();
@@ -215,10 +284,11 @@ int JackClient::process(jack_nframes_t nframes)
     // that contract, and truncating to mBlockSize would leave the rest of the
     // block holding whatever JACK's buffer had in it from the previous cycle,
     // which is stale audio rather than a dropout.
+    const jack_nframes_t chunk =
+        static_cast<jack_nframes_t>(mBlockSize.load(std::memory_order_relaxed));
     jack_nframes_t done = 0;
     while (done < nframes) {
-        const int32 n = static_cast<int32>(
-            std::min<jack_nframes_t>(static_cast<jack_nframes_t>(mBlockSize), nframes - done));
+        const int32 n = static_cast<int32>(std::min<jack_nframes_t>(chunk, nframes - done));
 
         // Point the VST3 bus buffers straight at JACK's, so no copy is needed.
         if (mProcessData.inputs && mProcessData.inputs[0].numChannels > 0)
@@ -239,6 +309,10 @@ int JackClient::process(jack_nframes_t nframes)
         done += static_cast<jack_nframes_t>(n);
     }
 
+    // Every exit from this callback bumps the cycle counter, including the
+    // early ones: suspendProcessing() waits on it, and a path that skipped it
+    // would look like an audio thread that had stopped responding.
+    mCycle.fetch_add(1, std::memory_order_release);
     return 0;
 }
 
