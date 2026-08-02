@@ -116,6 +116,92 @@ private:
 };
 
 //------------------------------------------------------------------------
+// Re-runs setupProcessing when JACK changes its buffer size under the running
+// client. The chunk loop in JackClient keeps audio correct without this — no
+// block ever reaches the processor larger than the size it was set up for —
+// but the processor would otherwise stay configured for the size it saw at
+// startup, sizing its internal buffers and its reported latency for a block
+// the host is no longer sending.
+//
+// This runs on the run loop, not in JACK's buffer-size callback: setActive and
+// setupProcessing are VST3 main-thread calls, and the plug-in's message thread
+// may be part-way through a load. JackClient::suspendProcessing() is what
+// keeps the audio callback out of the processor while it is reconfigured.
+class BufferSizeWatcher : public Linux::ITimerHandler
+{
+public:
+    BufferSizeWatcher(NAMix::JackClient &jack, Vst::IComponent *component,
+                      Vst::IAudioProcessor *processor, const Vst::ProcessSetup &setup)
+        : mJack(jack), mComponent(component), mProcessor(processor), mSetup(setup)
+    {
+    }
+
+    void PLUGIN_API onTimer() SMTG_OVERRIDE
+    {
+        const int size = mJack.takeBufferSizeChange();
+        if (size <= 0)
+            return;
+
+        if (!mJack.suspendProcessing()) {
+            fprintf(stderr,
+                    "namix-standalone: the audio thread did not respond, so the processor "
+                    "was left set up for %d frames\n",
+                    mJack.blockSize());
+            return;
+        }
+
+        mProcessor->setProcessing(false);
+        mComponent->setActive(false);
+
+        Vst::ProcessSetup setup = mSetup;
+        setup.maxSamplesPerBlock = size;
+        const bool ok = mProcessor->setupProcessing(setup) == kResultOk;
+        if (ok)
+            mSetup = setup;
+        else
+            fprintf(stderr, "namix-standalone: the plug-in refused %d frames; keeping %d\n", size,
+                    mSetup.maxSamplesPerBlock);
+
+        mComponent->setActive(true);
+        mProcessor->setProcessing(true);
+        // Only adopt the new chunk size if the plug-in accepted it. If it did
+        // not, the old size is still what it is prepared for, and the chunk
+        // loop must keep honouring that.
+        mJack.resumeProcessing(ok ? size : mSetup.maxSamplesPerBlock);
+
+        printf("namix-standalone: JACK buffer size is now %d frames\n", mJack.blockSize());
+        fflush(stdout);
+    }
+
+    tresult PLUGIN_API queryInterface(const TUID iid, void **obj) SMTG_OVERRIDE
+    {
+        if (!obj)
+            return kInvalidArgument;
+        if (FUnknownPrivate::iidEqual(iid, Linux::ITimerHandler::iid) ||
+            FUnknownPrivate::iidEqual(iid, FUnknown::iid)) {
+            *obj = static_cast<Linux::ITimerHandler *>(this);
+            return kResultOk;
+        }
+        *obj = nullptr;
+        return kNoInterface;
+    }
+    uint32 PLUGIN_API addRef() SMTG_OVERRIDE
+    {
+        return 1000;
+    }
+    uint32 PLUGIN_API release() SMTG_OVERRIDE
+    {
+        return 1000;
+    }
+
+private:
+    NAMix::JackClient &mJack;
+    Vst::IComponent *mComponent = nullptr;
+    Vst::IAudioProcessor *mProcessor = nullptr;
+    Vst::ProcessSetup mSetup;
+};
+
+//------------------------------------------------------------------------
 // Feeds the meter values the audio thread published back into the controller,
 // which is what makes the editor's meters move. Runs as a run-loop timer on
 // the UI thread, so no IEditController call ever happens on the RT thread.
@@ -340,6 +426,10 @@ int main(int argc, char **argv)
     MeterPump meters(jack, controller);
     runLoop.registerTimer(&meters, 33);
 
+    BufferSizeWatcher blockWatcher(jack, component, processor, setup);
+    if (jack.isOpen())
+        runLoop.registerTimer(&blockWatcher, 33);
+
     runLoop.setXEventCallback([&](const XEvent &event) {
         if (event.type == ClientMessage && static_cast<Atom>(event.xclient.data.l[0]) == wmDelete)
             runLoop.stop();
@@ -348,6 +438,8 @@ int main(int argc, char **argv)
     runLoop.run();
 
     // --- teardown ----------------------------------------------------
+    if (jack.isOpen())
+        runLoop.unregisterTimer(&blockWatcher);
     runLoop.unregisterTimer(&meters);
     if (view) {
         view->removed();

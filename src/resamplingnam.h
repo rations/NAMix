@@ -48,13 +48,16 @@ public:
             SetInputLevel(mEncapsulated->GetInputLevel());
         if (mEncapsulated->HasOutputLevel())
             SetOutputLevel(mEncapsulated->GetOutputLevel());
-        Reset(externalSampleRate, 2048);
+        // Size the buffers now, but do NOT prewarm here. The owner calls
+        // Reset() with the real block size immediately afterwards and that one
+        // prewarms; prewarming here as well runs a whole receptive field of
+        // inference on the message thread twice per load, for nothing.
+        resetInternal(externalSampleRate, 2048, false);
     }
 
     void process(NAM_SAMPLE **input, NAM_SAMPLE **output, const int num_frames) override
     {
-        const double encRate = GetNamEncapsulatedSampleRate(mEncapsulated);
-        if (encRate == mExpectedSampleRate) {
+        if (resamplerBypassed()) {
             mEncapsulated->process(input, output, num_frames);
         } else {
             mResampler.ProcessBlock(input, output, num_frames,
@@ -66,19 +69,16 @@ public:
 
     void Reset(const double sampleRate, const int maxBlockSize) override
     {
-        mExpectedSampleRate = sampleRate;
-        mMaxBufferSize = maxBlockSize;
-        mResampler.Reset(sampleRate, maxBlockSize);
-
-        const double encRate = GetNamEncapsulatedSampleRate(mEncapsulated);
-        const int encBlock =
-            static_cast<int>(std::ceil(static_cast<double>(maxBlockSize) * encRate / sampleRate));
-        mEncapsulated->ResetAndPrewarm(encRate, encBlock);
+        resetInternal(sampleRate, maxBlockSize, true);
     }
 
+    // Latency this wrapper adds, in samples at the session rate. Zero when the
+    // model already runs at the session rate, because process() then bypasses
+    // the resampler entirely — reporting its latency anyway tells the host to
+    // compensate for a delay that is not there, which pulls the track early.
     int GetLatency() const
     {
-        return mResampler.GetLatency();
+        return resamplerBypassed() ? 0 : mResampler.GetLatency();
     }
 
     // Non-null when the wrapped model supports dynamic size reduction (the
@@ -89,6 +89,29 @@ public:
     }
 
 private:
+    // The one place that decides whether the resampler is in the path at all.
+    // process() and GetLatency() must agree on this, or the plug-in reports a
+    // latency it is not actually introducing.
+    bool resamplerBypassed() const
+    {
+        return GetNamEncapsulatedSampleRate(mEncapsulated) == mExpectedSampleRate;
+    }
+
+    void resetInternal(const double sampleRate, const int maxBlockSize, const bool prewarm)
+    {
+        mExpectedSampleRate = sampleRate;
+        mMaxBufferSize = maxBlockSize;
+        mResampler.Reset(sampleRate, maxBlockSize);
+
+        const double encRate = GetNamEncapsulatedSampleRate(mEncapsulated);
+        const int encBlock =
+            static_cast<int>(std::ceil(static_cast<double>(maxBlockSize) * encRate / sampleRate));
+        if (prewarm)
+            mEncapsulated->ResetAndPrewarm(encRate, encBlock);
+        else
+            mEncapsulated->Reset(encRate, encBlock);
+    }
+
     std::unique_ptr<nam::DSP> mEncapsulated;
     dsp::ResamplingContainer<NAM_SAMPLE, 1, 12> mResampler;
 };

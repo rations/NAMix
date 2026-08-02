@@ -2,8 +2,9 @@
 //
 // The process callback runs on JACK's real-time thread and obeys the same
 // contract the plug-in's own process() does: no allocation, no locks, no
-// logging, no file I/O. Every buffer and every VST3 process structure is
-// allocated once in open(), sized from jack_get_buffer_size().
+// logging, no file I/O. Every VST3 process structure is allocated once in
+// open(); the sample buffers are JACK's own, which the bus pointers are aimed
+// at each block rather than copied through.
 //
 // Two things have to cross the RT boundary, and neither may touch a lock or
 // the edit controller from the audio thread:
@@ -46,14 +47,37 @@ public:
               Steinberg::Vst::IComponent *component);
     void close();
 
+    bool isOpen() const
+    {
+        return mClient != nullptr;
+    }
     double sampleRate() const
     {
         return mSampleRate;
     }
     int blockSize() const
     {
-        return mBlockSize;
+        return mBlockSize.load(std::memory_order_relaxed);
     }
+
+    // --- runtime buffer-size changes -------------------------------------
+    // JACK can resize its buffers under a running client. The chunk loop in
+    // process() keeps that safe on its own, but the processor is then still
+    // set up for the old size, so it is worth telling it. The reconfiguration
+    // is VST3 main-thread work, and it is not done in JACK's callback: these
+    // three calls hand it to the run loop instead.
+
+    // UI thread: the size JACK has moved to, or 0 if it has not moved.
+    int takeBufferSizeChange();
+
+    // UI thread: stop the audio callback from entering the processor, and
+    // wait until any call already in flight has returned. It outputs silence
+    // until resumed. False means the audio thread did not respond in time, in
+    // which case the caller must NOT touch the processor.
+    bool suspendProcessing();
+
+    // UI thread: adopt the new block size and let the audio callback back in.
+    void resumeProcessing(int blockSize);
 
     // UI thread: queue a normalized parameter change for the next block.
     // Returns false if the ring is full (the change is then dropped, which is
@@ -72,6 +96,7 @@ public:
 
 private:
     static int processTrampoline(jack_nframes_t nframes, void *arg);
+    static int bufferSizeTrampoline(jack_nframes_t nframes, void *arg);
     int process(jack_nframes_t nframes);
     void drainParameterRing(); // RT thread
     void publishMeters();      // RT thread
@@ -89,6 +114,13 @@ private:
     std::atomic<double> mInputMeter{0.0};
     std::atomic<double> mOutputMeter{0.0};
 
+    // Buffer-size handshake. mCycle is bumped by the audio thread on every
+    // callback, suspended or not, which is how the UI thread knows a call it
+    // might have raced with has finished.
+    std::atomic<int> mNewBlockSize{0};
+    std::atomic<bool> mSuspended{false};
+    std::atomic<uint32_t> mCycle{0};
+
     jack_client_t *mClient = nullptr;
     jack_port_t *mInPort = nullptr;
     jack_port_t *mOutPorts[2] = {nullptr, nullptr};
@@ -97,7 +129,8 @@ private:
     Steinberg::Vst::IComponent *mComponent = nullptr;
 
     double mSampleRate = 48000.0;
-    int mBlockSize = 1024;
+    // Read by the audio thread, written by the UI thread on a size change.
+    std::atomic<int> mBlockSize{1024};
 
     // Pre-allocated VST3 process plumbing, owned by the audio thread once
     // open() returns.
