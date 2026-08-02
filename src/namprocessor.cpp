@@ -146,8 +146,22 @@ tresult PLUGIN_API NamProcessor::setupProcessing(Vst::ProcessSetup &setup)
     // processing is guaranteed inactive during setupProcessing.
     if (mModel)
         mModel->Reset(mSampleRate, mMaxBlockSize);
+    // The pending model needs it just as much. It was built for the previous
+    // rate and block size, and the RT thread swaps it in without touching it —
+    // so leaving it out means the first block after the swap runs a model
+    // prepared for the wrong rate, with buffers sized for the wrong block.
+    if (mPendingModel)
+        mPendingModel->Reset(mSampleRate, mMaxBlockSize);
     if (!mIrPath.empty())
         loadIr(mIrPath); // the IR is resampled at load time for the new rate
+
+    // Reported latency depends on the rate: the resampler is bypassed when the
+    // model already runs at the session rate. Without this, a rate change is
+    // not reflected until the next model load.
+    if (auto *r = static_cast<ResamplingNAM *>(mModel.get()))
+        mLatency.store(static_cast<uint32>(r->GetLatency()), std::memory_order_relaxed);
+    else
+        mLatency.store(0, std::memory_order_relaxed);
 
     return kResultOk;
 }
@@ -261,7 +275,7 @@ tresult PLUGIN_API NamProcessor::process(Vst::ProcessData &data)
     if (!data.inputs[0].channelBuffers32 || !data.outputs[0].channelBuffers32)
         return kResultOk;
 
-    const int32 numSamples = std::min(data.numSamples, mMaxBlockSize);
+    const int32 numSamples = data.numSamples;
     float *in = data.inputs[0].channelBuffers32[0];
     float *out = data.outputs[0].channelBuffers32[0];
 
@@ -269,7 +283,17 @@ tresult PLUGIN_API NamProcessor::process(Vst::ProcessData &data)
         if (out != in)
             memcpy(out, in, static_cast<size_t>(numSamples) * sizeof(float));
     } else {
-        applyDsp(in, out, numSamples);
+        // The host may hand us more than it promised in setupProcessing. Loop
+        // in whole sub-blocks rather than clamping to mMaxBlockSize: clamping
+        // leaves the tail of the output buffer holding whatever was there
+        // before, which is stale audio rather than a dropout, and it would
+        // also hand the model a block larger than the size it was Reset with.
+        // Every chunk is <= mMaxBlockSize, so the buffers pre-warmed in
+        // setActive are never grown and nothing allocates here.
+        for (int32 done = 0; done < numSamples; done += mMaxBlockSize) {
+            const int32 n = std::min(mMaxBlockSize, numSamples - done);
+            applyDsp(in + done, out + done, n);
+        }
     }
 
     // Mono result -> every remaining output channel.

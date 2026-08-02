@@ -2,8 +2,9 @@
 //
 // The process callback runs on JACK's real-time thread and obeys the same
 // contract the plug-in's own process() does: no allocation, no locks, no
-// logging, no file I/O. Every buffer and every VST3 process structure is
-// allocated once in open(), sized from jack_get_buffer_size().
+// logging, no file I/O. Every VST3 process structure is allocated once in
+// open(); the sample buffers are JACK's own, which the bus pointers are aimed
+// at each block rather than copied through.
 //
 // Two things have to cross the RT boundary, and neither may touch a lock or
 // the edit controller from the audio thread:

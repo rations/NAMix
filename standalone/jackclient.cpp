@@ -52,9 +52,17 @@ bool JackClient::open(const char *clientName, Vst::IAudioProcessor *processor,
     }
 
     // All RT-side allocation happens here, before the process callback can
-    // run: bus buffers, and parameter queues sized for every parameter the
-    // plug-in exposes.
-    if (!mProcessData.prepare(*component, mBlockSize, Vst::kSample32)) {
+    // run: the bus and channel-pointer arrays, and parameter queues sized for
+    // every parameter the plug-in exposes.
+    //
+    // bufferSamples is deliberately 0. That is what tells HostProcessData it
+    // does NOT own the sample buffers, because process() below points the
+    // buses straight at JACK's own memory each block. Passing mBlockSize here
+    // instead makes it allocate a buffer per channel and set channelBufferOwner
+    // — and then unprepare() runs delete[] on whatever the pointers hold at
+    // close, which by then is JACK's memory, while the buffers it really
+    // allocated leak.
+    if (!mProcessData.prepare(*component, 0, Vst::kSample32)) {
         fprintf(stderr, "NAMix: cannot prepare the process buffers\n");
         close();
         return false;
@@ -183,33 +191,54 @@ int JackClient::processTrampoline(jack_nframes_t nframes, void *arg)
 // JACK real-time thread. Nothing here allocates, locks, or logs.
 int JackClient::process(jack_nframes_t nframes)
 {
-    if (!mProcessor)
+    float *outL = static_cast<float *>(jack_port_get_buffer(mOutPorts[0], nframes));
+    float *outR = static_cast<float *>(jack_port_get_buffer(mOutPorts[1], nframes));
+    if (!outL || !outR)
+        return 0;
+
+    if (!mProcessor) {
+        memset(outL, 0, nframes * sizeof(float));
+        memset(outR, 0, nframes * sizeof(float));
+        return 0;
+    }
+
+    float *in = static_cast<float *>(jack_port_get_buffer(mInPort, nframes));
+    if (!in)
         return 0;
 
     mInputChanges.clearQueue();
     mOutputChanges.clearQueue();
     drainParameterRing();
 
-    const int32 numSamples = std::min(static_cast<int32>(nframes), mBlockSize);
+    // Loop, never clamp. JACK's buffer size can change under a running client,
+    // and the processor was set up for mBlockSize: handing it more would break
+    // that contract, and truncating to mBlockSize would leave the rest of the
+    // block holding whatever JACK's buffer had in it from the previous cycle,
+    // which is stale audio rather than a dropout.
+    jack_nframes_t done = 0;
+    while (done < nframes) {
+        const int32 n = static_cast<int32>(
+            std::min<jack_nframes_t>(static_cast<jack_nframes_t>(mBlockSize), nframes - done));
 
-    float *in = static_cast<float *>(jack_port_get_buffer(mInPort, nframes));
-    float *outL = static_cast<float *>(jack_port_get_buffer(mOutPorts[0], nframes));
-    float *outR = static_cast<float *>(jack_port_get_buffer(mOutPorts[1], nframes));
-    if (!in || !outL || !outR)
-        return 0;
+        // Point the VST3 bus buffers straight at JACK's, so no copy is needed.
+        if (mProcessData.inputs && mProcessData.inputs[0].numChannels > 0)
+            mProcessData.inputs[0].channelBuffers32[0] = in + done;
+        if (mProcessData.outputs && mProcessData.outputs[0].numChannels > 1) {
+            mProcessData.outputs[0].channelBuffers32[0] = outL + done;
+            mProcessData.outputs[0].channelBuffers32[1] = outR + done;
+        }
+        mProcessData.numSamples = n;
 
-    // Point the VST3 bus buffers straight at JACK's, so no copy is needed.
-    if (mProcessData.inputs && mProcessData.inputs[0].numChannels > 0)
-        mProcessData.inputs[0].channelBuffers32[0] = in;
-    if (mProcessData.outputs && mProcessData.outputs[0].numChannels > 1) {
-        mProcessData.outputs[0].channelBuffers32[0] = outL;
-        mProcessData.outputs[0].channelBuffers32[1] = outR;
+        mProcessor->process(mProcessData);
+
+        publishMeters();
+        // The queued edits belong to the top of the JACK block, not to every
+        // chunk of it; replaying them would re-apply the same point n times.
+        mInputChanges.clearQueue();
+        mOutputChanges.clearQueue();
+        done += static_cast<jack_nframes_t>(n);
     }
-    mProcessData.numSamples = numSamples;
 
-    mProcessor->process(mProcessData);
-
-    publishMeters();
     return 0;
 }
 
