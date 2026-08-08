@@ -52,6 +52,7 @@ public:
 
     //---from CPluginView-------------
     tresult PLUGIN_API isPlatformTypeSupported(FIDString type) SMTG_OVERRIDE;
+    tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
     void attachedToParent() SMTG_OVERRIDE;
     void removedFromParent() SMTG_OVERRIDE;
 
@@ -131,8 +132,20 @@ private:
     void mapWindow();
     void ensureMapped();
 
+    // Diagnostics, enabled by setting NAMIX_X11_TRACE in the environment. They
+    // exist because the embedding contract is host-specific and only partly
+    // written down: when an editor misbehaves in one host, the first question
+    // is always "which X events did we actually get, and was the window
+    // viewable", and that has to be answerable from a user's machine.
+    void trace(const char *fmt, ...) const __attribute__((format(printf, 2, 3)));
+    void traceEvent(const XEvent &event) const;
+    void traceWindowState(const char *when) const;
+
     ::Display *mDisplay = nullptr;
     ::Window mWindow = 0;
+    // Only set when the parent had no colormap to share and we had to make one;
+    // a borrowed parent colormap must not be freed.
+    Colormap mOwnedColormap = None;
     Atom mXEmbedInfoAtom = None;
     cairo_surface_t *mTarget = nullptr; // xlib surface for mWindow
     cairo_surface_t *mBuffer = nullptr; // offscreen image surface
@@ -143,6 +156,13 @@ private:
     bool mDirty = true;
     bool mMapped = false;
     int mTicksUnmapped = 0;
+
+    bool mTrace = false;
+    unsigned long mTickCount = 0;
+    unsigned long mFdCount = 0;
+    unsigned long mEventCount = 0;
+    unsigned long mRedrawCount = 0;
+    unsigned long mTicksSinceRedraw = 0;
 };
 
 //------------------------------------------------------------------------
