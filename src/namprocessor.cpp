@@ -414,16 +414,18 @@ void NamProcessor::applyDsp(float *in, float *out, int32 numSamples)
 // so it can retitle the unsupported parameters. Message thread only; runs
 // after every model load or clear. Capabilities are read from the new model
 // BEFORE it is staged for the RT swap, so no model slot is touched here.
-void NamProcessor::sendModelCaps(bool slimmable, bool hasInputLevel, bool hasOutputLevel)
+void NamProcessor::sendModelCaps(const ModelCaps &caps)
 {
     Steinberg::IPtr<Vst::IMessage> message = owned(allocateMessage());
     if (!message)
         return;
     message->setMessageID(kMsgModelCaps);
     Vst::IAttributeList *attrs = message->getAttributes();
-    attrs->setInt(kCapsSlimmableAttr, slimmable ? 1 : 0);
-    attrs->setInt(kCapsInLevelAttr, hasInputLevel ? 1 : 0);
-    attrs->setInt(kCapsOutLevelAttr, hasOutputLevel ? 1 : 0);
+    attrs->setInt(kCapsLoadedAttr, caps.loaded ? 1 : 0);
+    attrs->setInt(kCapsSlimmableAttr, caps.slimmable ? 1 : 0);
+    attrs->setInt(kCapsLoudnessAttr, caps.hasLoudness ? 1 : 0);
+    attrs->setInt(kCapsInLevelAttr, caps.hasInputLevel ? 1 : 0);
+    attrs->setInt(kCapsOutLevelAttr, caps.hasOutputLevel ? 1 : 0);
     sendMessage(message);
 }
 
@@ -434,7 +436,7 @@ bool NamProcessor::loadModel(const std::string &path)
         mPendingModel.reset();
         mModelPath.clear();
         mModelPending.store(true, std::memory_order_release);
-        sendModelCaps(false, false, false);
+        sendModelCaps(ModelCaps{}); // nothing loaded: every flag false
         return true;
     }
     try {
@@ -447,13 +449,16 @@ bool NamProcessor::loadModel(const std::string &path)
         // model before it is staged for the RT swap.
         if (auto *s = wrapped->GetSlimmableModel())
             s->SetSlimmableSize(mSlimNorm.load(std::memory_order_relaxed));
-        const bool slimmable = wrapped->GetSlimmableModel() != nullptr;
-        const bool hasIn = wrapped->HasInputLevel();
-        const bool hasOut = wrapped->HasOutputLevel();
+        ModelCaps caps;
+        caps.loaded = true;
+        caps.slimmable = wrapped->GetSlimmableModel() != nullptr;
+        caps.hasLoudness = wrapped->HasLoudness();
+        caps.hasInputLevel = wrapped->HasInputLevel();
+        caps.hasOutputLevel = wrapped->HasOutputLevel();
         mPendingModel = std::move(wrapped);
         mModelPath = path;
         mModelPending.store(true, std::memory_order_release);
-        sendModelCaps(slimmable, hasIn, hasOut);
+        sendModelCaps(caps);
         return true;
     } catch (const std::exception &) {
         return false;

@@ -170,22 +170,46 @@ tresult PLUGIN_API NamController::notify(Vst::IMessage *message)
 {
     const char *id = message ? message->getMessageID() : nullptr;
     if (id && strcmp(id, kMsgModelCaps) == 0) {
-        int64 slimmable = 0, hasIn = 0, hasOut = 0;
+        int64 loaded = 0, slimmable = 0, hasLoud = 0, hasIn = 0, hasOut = 0;
         Vst::IAttributeList *attrs = message->getAttributes();
+        attrs->getInt(kCapsLoadedAttr, loaded);
         attrs->getInt(kCapsSlimmableAttr, slimmable);
+        attrs->getInt(kCapsLoudnessAttr, hasLoud);
         attrs->getInt(kCapsInLevelAttr, hasIn);
         attrs->getInt(kCapsOutLevelAttr, hasOut);
 
-        retitleParam(kSlimId, slimmable ? "Slim" : "Slim (n/a)");
-        retitleParam(kCalibrateInputId, hasIn ? "Calibrate Input" : "Calibrate Input (n/a)");
-        retitleParam(kInputCalibrationLevelId,
-                     hasIn ? "Input Calibration Level" : "Input Calibration Level (n/a)");
-        retitleParam(kOutputModeId, hasOut ? "Output Mode" : "Output Mode (no calibration)");
+        mCaps.loaded = loaded != 0;
+        mCaps.slimmable = slimmable != 0;
+        mCaps.hasLoudness = hasLoud != 0;
+        mCaps.hasInputLevel = hasIn != 0;
+        mCaps.hasOutputLevel = hasOut != 0;
+
+        // With no model loaded there is no metadata to be missing, so the
+        // titles make no claim about it: "(n/a)" on a fresh instance reads
+        // as a broken plug-in rather than as an empty slot.
+        const bool slimNa = mCaps.loaded && !mCaps.slimmable;
+        const bool calNa = mCaps.loaded && !mCaps.hasInputLevel;
+        retitleParam(kSlimId, slimNa ? "Slim (n/a)" : "Slim");
+        retitleParam(kCalibrateInputId, calNa ? "Calibrate Input (n/a)" : "Calibrate Input");
+        // The dBu level is a property of the user's audio interface, not of
+        // the capture, so it is never marked unavailable — see NamEditorView.
+        retitleParam(kInputCalibrationLevelId, "Input Calibration Level");
+        // Normalized needs "loudness"; Calibrated needs "output_level_dbu".
+        // Name whichever mode the capture cannot actually offer.
+        const char *outTitle = "Output Mode";
+        if (mCaps.loaded && !mCaps.hasLoudness && !mCaps.hasOutputLevel)
+            outTitle = "Output Mode (raw only)";
+        else if (mCaps.loaded && !mCaps.hasOutputLevel)
+            outTitle = "Output Mode (no calibrated)";
+        else if (mCaps.loaded && !mCaps.hasLoudness)
+            outTitle = "Output Mode (no normalized)";
+        retitleParam(kOutputModeId, outTitle);
         if (componentHandler)
             componentHandler->restartComponent(Vst::kParamTitlesChanged);
-        // Let the editor disable the model-gated controls too.
+        // Let the editor repaint the model-gated controls; it reads the new
+        // caps back out of modelCaps() as it draws.
         if (mView)
-            mView->ModelCapsChanged(slimmable != 0, hasIn != 0, hasOut != 0);
+            mView->ModelCapsChanged();
         return kResultOk;
     }
     return EditController::notify(message);

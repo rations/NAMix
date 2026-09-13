@@ -39,9 +39,11 @@ public:
     // (automation, generic UI, state load, metering).
     void ParamChanged(Steinberg::Vst::ParamID id, Steinberg::Vst::ParamValue value);
 
-    // Called by the controller when the processor reports model capabilities,
-    // so the editor can disable the model-gated controls.
-    void ModelCapsChanged(bool slimmable, bool hasInputLevel, bool hasOutputLevel);
+    // Called by the controller when the processor reports model capabilities.
+    // Carries nothing: the caps live on the controller and are read back as
+    // the panel draws, so this only has to repaint and shut anything the new
+    // capture has taken away.
+    void ModelCapsChanged();
 
 protected:
     //---from X11PlugView-------------
@@ -109,9 +111,18 @@ private:
 
     bool mSettingsOpen = false;
     bool mSlimOpen = false;
-    bool mSlimmable = false;
-    bool mHasInputLevel = false;
-    bool mHasOutputLevel = false;
+
+    // Whether each model-gated control has anything to work from, asked of the
+    // controller as the panel draws. Every one of them answers "yes" while no
+    // model is loaded: an empty slot carries no metadata, so it cannot be
+    // missing any, and greying the controls of a fresh instance describes
+    // nothing. Raw needs no metadata at all — it is the absence of a
+    // compensation — so it is always available.
+    bool normalizedAvailable() const;     // needs the capture's "loudness"
+    bool calibratedAvailable() const;     // needs its "output_level_dbu"
+    bool calibrateInputAvailable() const; // needs its "input_level_dbu"
+    bool outputModeAvailable(int mode) const;
+    bool slimAvailable() const;
 };
 
 } // namespace NAMix

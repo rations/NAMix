@@ -4,6 +4,7 @@
 #pragma once
 
 #include "inamfileloader.h"
+#include "namids.h"
 #include "public.sdk/source/vst/vsteditcontroller.h"
 
 #include <string>
@@ -56,6 +57,17 @@ public:
     END_DEFINE_INTERFACES(EditController)
     REFCOUNT_METHODS(EditController)
 
+    // What the loaded capture states about its own levels, for greying the
+    // controls it cannot honour. The caps live here rather than in the editor
+    // because the caps message arrives only on a load or a clear: a copy held
+    // by the view would describe whatever was loaded when that view was built,
+    // and an editor closed and reopened over a live capture would start from
+    // the defaults. The view asks as it draws, so there is nothing to go stale.
+    const ModelCaps &modelCaps() const
+    {
+        return mCaps;
+    }
+
 private:
     void retitleParam(Steinberg::Vst::ParamID tag, const char *title);
     Steinberg::tresult sendPath(const char *messageID, const Steinberg::char8 *path);
@@ -64,6 +76,8 @@ private:
 
     std::string mModelPath;
     std::string mIrPath;
+    // Last capabilities reported by the processor.
+    ModelCaps mCaps;
     NamEditorView *mView = nullptr; // live editor, host UI/run-loop thread only
 };
 

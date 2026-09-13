@@ -71,9 +71,26 @@ inline constexpr const char *kSlimAttr = "slim";
 // or clear (int attributes, 0/1), so the editor can disable or retitle the
 // controls that the current capture does not support.
 inline constexpr const char *kMsgModelCaps = "NAMModelCaps";
+inline constexpr const char *kCapsLoadedAttr = "modelLoaded";
 inline constexpr const char *kCapsSlimmableAttr = "slimmable";
+inline constexpr const char *kCapsLoudnessAttr = "hasLoudness";
 inline constexpr const char *kCapsInLevelAttr = "hasInputLevel";
 inline constexpr const char *kCapsOutLevelAttr = "hasOutputLevel";
+
+// What the caps message carries. The three metadata flags are independent
+// predicates over different JSON keys, and each gates a different control:
+// "loudness" gates Normalized, "output_level_dbu" gates Calibrated, and
+// "input_level_dbu" gates the Calibrate Input toggle. Merging any two of
+// them disables a control over metadata it never needed. `loaded` is false
+// for the model-cleared path, where the other flags say nothing at all:
+// a capture that is not loaded has no metadata to be missing.
+struct ModelCaps {
+    bool loaded = false;
+    bool slimmable = false;
+    bool hasLoudness = false;
+    bool hasInputLevel = false;
+    bool hasOutputLevel = false;
+};
 
 static DECLARE_UID(NamProcessorUID, 0x80781530, 0x12284EB4, 0x89676AE5, 0x52A4FB2B);
 static DECLARE_UID(NamControllerUID, 0xFD4220E5, 0xACFD437A, 0x9318389D, 0x1DED6791);

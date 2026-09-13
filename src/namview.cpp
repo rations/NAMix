@@ -160,7 +160,7 @@ void NamEditorView::compose(Canvas &c)
     drawMeter(c, geo::kInputMeter, mInDisp, "IN");
     drawMeter(c, geo::kOutputMeter, mOutDisp, "OUT");
     drawGear(c);
-    if (mSlimmable)
+    if (slimAvailable())
         drawSlimIcon(c);
 
     if (mSettingsOpen)
@@ -404,15 +404,21 @@ void NamEditorView::drawSettings(Canvas &c)
     const Rect val = calValueRect();
     if (cairo_surface_t *ib = mImages.get("InputLevelBackground"))
         c.drawImage(ib, val);
+    // The dBu value states the analog level that corresponds to 0 dBFS on the
+    // user's audio interface. That is a fact about their rig, identical for
+    // every capture, so it draws and edits at full strength whether or not the
+    // loaded capture happens to state its own recording level. Only the toggle
+    // below it — which needs the capture's "input_level_dbu" to measure this
+    // number against — is gated on the model.
     const std::string calText = paramText(kInputCalibrationLevelId);
     c.setFontSize(13);
-    c.setColor(mHasInputLevel ? geo::kTextColor : 0x5A5760);
+    c.setColor(geo::kTextColor);
     c.drawString(calText.c_str(), val.left() + (val.w - c.stringWidth(calText.c_str())) / 2.0f,
                  val.top() + 18);
 
     const Rect tog = calibrateToggleRect();
     const bool calOn = paramValue(kCalibrateInputId) > 0.5;
-    c.setColor(!mHasInputLevel ? 0x2A2730 : (calOn ? geo::kAzure : 0x2A2730));
+    c.setColor(calibrateInputAvailable() && calOn ? geo::kAzure : 0x2A2730);
     c.fillRoundRect(tog, geo::kToggleH / 2.0f);
     const float hs = 18.0f;
     const float hx = calOn ? tog.right() - hs - 2.0f : tog.left() + 2.0f;
@@ -421,7 +427,7 @@ void NamEditorView::drawSettings(Canvas &c)
         c.drawImage(sw, handle);
 
     c.setFontSize(12);
-    c.setColor(mHasInputLevel ? geo::kTextColor : 0x5A5760);
+    c.setColor(calibrateInputAvailable() ? geo::kTextColor : 0x5A5760);
     c.drawString("Calibrate Input", val.left() + (val.w - c.stringWidth("Calibrate Input")) / 2.0f,
                  tog.bottom() + 16);
 
@@ -434,7 +440,7 @@ void NamEditorView::drawSettings(Canvas &c)
     c.setFontSize(12);
     for (int i = 0; i < 3; ++i) {
         const Rect row = outputModeRow(i);
-        const bool gated = (i > 0 && !mHasOutputLevel);
+        const bool gated = !outputModeAvailable(i);
         const float dotX = row.left() + 8, dotY = row.top() + 11;
         c.setColor(gated ? 0x4A4750 : geo::kAzure);
         c.strokeEllipse(dotX, dotY, 6, 6);
@@ -562,7 +568,7 @@ void NamEditorView::onMouseDown(int x, int y, int button)
         return;
     }
     // Slim icon (slimmable models only) -> open slim overlay.
-    if (mSlimmable) {
+    if (slimAvailable()) {
         const Rect si(geo::kSlimIconX, geo::kSlimIconY, geo::kSlimIconW, geo::kSlimIconH);
         if (si.contains(fx, fy)) {
             mSlimOpen = true;
@@ -638,7 +644,7 @@ void NamEditorView::onMouseWheel(int x, int y, int delta)
         return;
     }
     if (mSettingsOpen) {
-        if (mHasInputLevel && calValueRect().contains(fx, fy))
+        if (calValueRect().contains(fx, fy))
             nudgeParam(kInputCalibrationLevelId, step);
         return;
     }
@@ -659,26 +665,29 @@ void NamEditorView::handleSettingsClick(float x, float y)
         invalidate();
         return;
     }
-    // Output mode (index 0/1/2 -> normalized 0/0.5/1). Normalized and
-    // Calibrated need model output-level metadata.
+    // Output mode (index 0/1/2 -> normalized 0/0.5/1). The two compensating
+    // modes read different metadata and are gated separately: Normalized
+    // scales the capture's measured "loudness" to -18 dB, while Calibrated
+    // needs the capture's "output_level_dbu". Raw is the absence of a
+    // compensation and is always reachable.
     for (int i = 0; i < 3; ++i) {
         if (outputModeRow(i).contains(x, y)) {
-            if (i > 0 && !mHasOutputLevel)
-                return; // gated
+            if (!outputModeAvailable(i))
+                return; // this capture states nothing for this mode to use
             editParam(kOutputModeId, i * 0.5);
             invalidate();
             return;
         }
     }
-    if (mHasInputLevel) {
-        if (calibrateToggleRect().contains(x, y)) {
-            editParam(kCalibrateInputId, paramValue(kCalibrateInputId) > 0.5 ? 0.0 : 1.0);
-            invalidate();
-            return;
-        }
-        if (calValueRect().contains(x, y))
-            startDrag(kInputCalibrationLevelId, y); // drag to edit dBu
+    // Only the toggle is gated on the capture; the dBu level beside it
+    // describes the user's interface and stays editable — see drawSettings.
+    if (calibrateInputAvailable() && calibrateToggleRect().contains(x, y)) {
+        editParam(kCalibrateInputId, paramValue(kCalibrateInputId) > 0.5 ? 0.0 : 1.0);
+        invalidate();
+        return;
     }
+    if (calValueRect().contains(x, y))
+        startDrag(kInputCalibrationLevelId, y); // drag to edit dBu
 }
 
 //------------------------------------------------------------------------
@@ -822,11 +831,60 @@ void NamEditorView::ParamChanged(Vst::ParamID id, Vst::ParamValue value)
     invalidate();
 }
 
-void NamEditorView::ModelCapsChanged(bool slimmable, bool hasInputLevel, bool hasOutputLevel)
+// Whether each model-gated control has anything to work from. The caps are
+// read from the controller on every call rather than copied here, so a panel
+// opened over a capture that was loaded before it describes that capture and
+// not the defaults.
+bool NamEditorView::normalizedAvailable() const
 {
-    mSlimmable = slimmable;
-    mHasInputLevel = hasInputLevel;
-    mHasOutputLevel = hasOutputLevel;
+    if (!mController)
+        return true;
+    const ModelCaps &caps = mController->modelCaps();
+    return !caps.loaded || caps.hasLoudness;
+}
+
+bool NamEditorView::calibratedAvailable() const
+{
+    if (!mController)
+        return true;
+    const ModelCaps &caps = mController->modelCaps();
+    return !caps.loaded || caps.hasOutputLevel;
+}
+
+bool NamEditorView::calibrateInputAvailable() const
+{
+    if (!mController)
+        return true;
+    const ModelCaps &caps = mController->modelCaps();
+    return !caps.loaded || caps.hasInputLevel;
+}
+
+bool NamEditorView::outputModeAvailable(int mode) const
+{
+    if (mode == 0)
+        return true; // Raw compensates for nothing, so nothing can be missing
+    return mode == 1 ? normalizedAvailable() : calibratedAvailable();
+}
+
+// Slim is not gated the way the output controls are: it is an icon that opens
+// an overlay, not a control to grey, and a capture that is not slimmable has
+// no size to choose. So this asks whether the loaded model IS slimmable, and
+// an empty slot answers no.
+bool NamEditorView::slimAvailable() const
+{
+    return mController && mController->modelCaps().slimmable;
+}
+
+//------------------------------------------------------------------------
+void NamEditorView::ModelCapsChanged()
+{
+    // A load can take the Slim control away underneath an open overlay: load a
+    // non-slimmable capture while it is up and the icon that opened it is
+    // gone. Shut it, as the original plug-in hides its own overlay when the
+    // model it belongs to goes away. Nothing is lost by closing — the knob
+    // publishes each edit as it is made.
+    if (mSlimOpen && !slimAvailable())
+        mSlimOpen = false;
     invalidate();
 }
 

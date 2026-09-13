@@ -12,6 +12,8 @@
 
 #pragma once
 
+#include "namids.h"
+
 #include "public.sdk/source/vst/vstaudioeffect.h"
 
 #include "ImpulseResponse.h"
@@ -64,11 +66,10 @@ public:
 private:
     void handleParameterChanges(Steinberg::Vst::IParameterChanges *changes);
     void applyDsp(float *in, float *out, Steinberg::int32 numSamples);
-    bool loadModel(const std::string &path); // message thread only
-    bool loadIr(const std::string &path);    // message thread only
-    void applySlim(double v);                // message thread only
-    void sendModelCaps(bool slimmable, bool hasInputLevel,
-                       bool hasOutputLevel); // message thread only
+    bool loadModel(const std::string &path);   // message thread only
+    bool loadIr(const std::string &path);      // message thread only
+    void applySlim(double v);                  // message thread only
+    void sendModelCaps(const ModelCaps &caps); // message thread only
 
     // Normalized parameter values (written by RT param handling AND by
     // setState on the message thread; atomics keep the accesses tear-free).
