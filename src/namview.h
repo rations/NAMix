@@ -112,16 +112,20 @@ private:
     bool mSettingsOpen = false;
     bool mSlimOpen = false;
 
-    // Whether each model-gated control has anything to work from, asked of the
-    // controller as the panel draws. Every one of them answers "yes" while no
-    // model is loaded: an empty slot carries no metadata, so it cannot be
-    // missing any, and greying the controls of a fresh instance describes
-    // nothing. Raw needs no metadata at all — it is the absence of a
-    // compensation — so it is always available.
-    bool normalizedAvailable() const;     // needs the capture's "loudness"
-    bool calibratedAvailable() const;     // needs its "output_level_dbu"
+    // What the loaded capture states, asked of the controller as the panel
+    // draws. Every one answers "yes" while no model is loaded: an empty slot
+    // carries no metadata, so it cannot be missing any, and a fresh instance
+    // has nothing to warn about. Raw needs no metadata at all -- it is the
+    // absence of a compensation -- so it is always supported.
+    //
+    // The two output predicates choose a LABEL, not an enabled state: an
+    // unsupported output mode stays selectable and behaves as Raw, which is
+    // what the original plug-in does. calibrateInputAvailable() is the only
+    // one that disables anything.
+    bool normalizedSupported() const;     // needs the capture's "loudness"
+    bool calibratedSupported() const;     // needs its "output_level_dbu"
     bool calibrateInputAvailable() const; // needs its "input_level_dbu"
-    bool outputModeAvailable(int mode) const;
+    bool outputModeSupported(int mode) const;
     bool slimAvailable() const;
 };
 

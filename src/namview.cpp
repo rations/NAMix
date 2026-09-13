@@ -438,19 +438,25 @@ void NamEditorView::drawSettings(Canvas &c)
     const char *modes[3] = {"Raw", "Normalized", "Calibrated"};
     const int cur = static_cast<int>(paramValue(kOutputModeId) * 2.0 + 0.5);
     c.setFontSize(12);
+    // The modes are annotated, never disabled. A mode whose metadata is absent
+    // is a no-op in the DSP -- applyDsp leaves the gain at unity, which is what
+    // Raw does -- so refusing the click buys nothing and takes a working mode
+    // away from any capture whose metadata we read differently than the user
+    // expects. The original plug-in reaches the same place from the other
+    // direction: its OutputModeControl only ever rewrites the two labels, and
+    // both of its attempts to call SetDisabled on the radio group are commented
+    // out, one of them with "FIXME -- need to disable only the normalized
+    // model". Say what is missing, then let the user choose.
     for (int i = 0; i < 3; ++i) {
         const Rect row = outputModeRow(i);
-        const bool gated = !outputModeAvailable(i);
         const float dotX = row.left() + 8, dotY = row.top() + 11;
-        c.setColor(gated ? 0x4A4750 : geo::kAzure);
+        c.setColor(geo::kAzure);
         c.strokeEllipse(dotX, dotY, 6, 6);
-        if (i == cur) {
-            c.setColor(geo::kAzure);
+        if (i == cur)
             c.fillEllipse(dotX, dotY, 3, 3);
-        }
-        c.setColor(gated ? 0x5A5760 : geo::kTextColor);
+        c.setColor(geo::kTextColor);
         std::string label(modes[i]);
-        if (gated)
+        if (!outputModeSupported(i))
             label += " [Not supported by model]";
         c.drawString(label.c_str(), row.left() + 22, row.top() + 16);
     }
@@ -665,15 +671,12 @@ void NamEditorView::handleSettingsClick(float x, float y)
         invalidate();
         return;
     }
-    // Output mode (index 0/1/2 -> normalized 0/0.5/1). The two compensating
-    // modes read different metadata and are gated separately: Normalized
-    // scales the capture's measured "loudness" to -18 dB, while Calibrated
-    // needs the capture's "output_level_dbu". Raw is the absence of a
-    // compensation and is always reachable.
+    // Output mode (index 0/1/2 -> normalized 0/0.5/1). Every mode is
+    // selectable; the ones the capture has no metadata for say so in their
+    // label and behave as Raw. See drawSettings for why none of them is
+    // refused.
     for (int i = 0; i < 3; ++i) {
         if (outputModeRow(i).contains(x, y)) {
-            if (!outputModeAvailable(i))
-                return; // this capture states nothing for this mode to use
             editParam(kOutputModeId, i * 0.5);
             invalidate();
             return;
@@ -831,11 +834,12 @@ void NamEditorView::ParamChanged(Vst::ParamID id, Vst::ParamValue value)
     invalidate();
 }
 
-// Whether each model-gated control has anything to work from. The caps are
-// read from the controller on every call rather than copied here, so a panel
-// opened over a capture that was loaded before it describes that capture and
-// not the defaults.
-bool NamEditorView::normalizedAvailable() const
+// What the loaded capture states about its own levels. The caps are read from
+// the controller on every call rather than copied here, so a panel opened over
+// a capture that was loaded before it describes that capture and not the
+// defaults. The two output predicates only choose a label; only
+// calibrateInputAvailable() actually takes a control away.
+bool NamEditorView::normalizedSupported() const
 {
     if (!mController)
         return true;
@@ -843,7 +847,7 @@ bool NamEditorView::normalizedAvailable() const
     return !caps.loaded || caps.hasLoudness;
 }
 
-bool NamEditorView::calibratedAvailable() const
+bool NamEditorView::calibratedSupported() const
 {
     if (!mController)
         return true;
@@ -859,11 +863,11 @@ bool NamEditorView::calibrateInputAvailable() const
     return !caps.loaded || caps.hasInputLevel;
 }
 
-bool NamEditorView::outputModeAvailable(int mode) const
+bool NamEditorView::outputModeSupported(int mode) const
 {
     if (mode == 0)
         return true; // Raw compensates for nothing, so nothing can be missing
-    return mode == 1 ? normalizedAvailable() : calibratedAvailable();
+    return mode == 1 ? normalizedSupported() : calibratedSupported();
 }
 
 // Slim is not gated the way the output controls are: it is an icon that opens
