@@ -404,15 +404,13 @@ void NamEditorView::drawSettings(Canvas &c)
     const Rect val = calValueRect();
     if (cairo_surface_t *ib = mImages.get("InputLevelBackground"))
         c.drawImage(ib, val);
-    // The dBu value states the analog level that corresponds to 0 dBFS on the
-    // user's audio interface. That is a fact about their rig, identical for
-    // every capture, so it draws and edits at full strength whether or not the
-    // loaded capture happens to state its own recording level. Only the toggle
-    // below it — which needs the capture's "input_level_dbu" to measure this
-    // number against — is gated on the model.
+    // Both halves of this block are gated together on the capture's
+    // "input_level_dbu", matching the original plug-in: it derives one
+    // disableInputCalibrationControls flag from HasInputLevel() and applies it
+    // to the Calibrate Input toggle and the level box in the same breath.
     const std::string calText = paramText(kInputCalibrationLevelId);
     c.setFontSize(13);
-    c.setColor(geo::kTextColor);
+    c.setColor(calibrateInputAvailable() ? geo::kTextColor : 0x5A5760);
     c.drawString(calText.c_str(), val.left() + (val.w - c.stringWidth(calText.c_str())) / 2.0f,
                  val.top() + 18);
 
@@ -650,7 +648,7 @@ void NamEditorView::onMouseWheel(int x, int y, int delta)
         return;
     }
     if (mSettingsOpen) {
-        if (calValueRect().contains(fx, fy))
+        if (calibrateInputAvailable() && calValueRect().contains(fx, fy))
             nudgeParam(kInputCalibrationLevelId, step);
         return;
     }
@@ -682,15 +680,16 @@ void NamEditorView::handleSettingsClick(float x, float y)
             return;
         }
     }
-    // Only the toggle is gated on the capture; the dBu level beside it
-    // describes the user's interface and stays editable — see drawSettings.
-    if (calibrateInputAvailable() && calibrateToggleRect().contains(x, y)) {
-        editParam(kCalibrateInputId, paramValue(kCalibrateInputId) > 0.5 ? 0.0 : 1.0);
-        invalidate();
-        return;
+    // The toggle and the level are gated together -- see drawSettings.
+    if (calibrateInputAvailable()) {
+        if (calibrateToggleRect().contains(x, y)) {
+            editParam(kCalibrateInputId, paramValue(kCalibrateInputId) > 0.5 ? 0.0 : 1.0);
+            invalidate();
+            return;
+        }
+        if (calValueRect().contains(x, y))
+            startDrag(kInputCalibrationLevelId, y); // drag to edit dBu
     }
-    if (calValueRect().contains(x, y))
-        startDrag(kInputCalibrationLevelId, y); // drag to edit dBu
 }
 
 //------------------------------------------------------------------------
@@ -838,7 +837,7 @@ void NamEditorView::ParamChanged(Vst::ParamID id, Vst::ParamValue value)
 // the controller on every call rather than copied here, so a panel opened over
 // a capture that was loaded before it describes that capture and not the
 // defaults. The two output predicates only choose a label; only
-// calibrateInputAvailable() actually takes a control away.
+// calibrateInputAvailable() takes controls away, and it takes both of them.
 bool NamEditorView::normalizedSupported() const
 {
     if (!mController)

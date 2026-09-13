@@ -198,9 +198,8 @@ tresult PLUGIN_API NamController::notify(Vst::IMessage *message)
         const bool calNa = mCaps.loaded && !mCaps.hasInputLevel;
         retitleParam(kSlimId, slimNa ? "Slim (n/a)" : "Slim");
         retitleParam(kCalibrateInputId, calNa ? "Calibrate Input (n/a)" : "Calibrate Input");
-        // The dBu level is a property of the user's audio interface, not of
-        // the capture, so it is never marked unavailable — see NamEditorView.
-        retitleParam(kInputCalibrationLevelId, "Input Calibration Level");
+        retitleParam(kInputCalibrationLevelId,
+                     calNa ? "Input Calibration Level (n/a)" : "Input Calibration Level");
         // Normalized needs "loudness"; Calibrated needs "output_level_dbu".
         // Name whichever mode the capture cannot actually offer.
         const char *outTitle = "Output Mode";

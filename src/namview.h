@@ -121,7 +121,9 @@ private:
     // The two output predicates choose a LABEL, not an enabled state: an
     // unsupported output mode stays selectable and behaves as Raw, which is
     // what the original plug-in does. calibrateInputAvailable() is the only
-    // one that disables anything.
+    // one that disables anything, and it disables both halves of the input
+    // calibration block together -- the toggle and the dBu level -- as the
+    // original does from a single flag.
     bool normalizedSupported() const;     // needs the capture's "loudness"
     bool calibratedSupported() const;     // needs its "output_level_dbu"
     bool calibrateInputAvailable() const; // needs its "input_level_dbu"
