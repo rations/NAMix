@@ -4,8 +4,8 @@
 
 #define MAJOR_VERSION_STR "0"
 #define MAJOR_VERSION_INT 0
-#define SUB_VERSION_STR "7"
-#define SUB_VERSION_INT 7
+#define SUB_VERSION_STR "8"
+#define SUB_VERSION_INT 8
 #define RELEASE_NUMBER_STR "0"
 #define RELEASE_NUMBER_INT 0
 #define BUILD_NUMBER_STR "1"
