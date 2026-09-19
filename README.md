@@ -11,18 +11,27 @@ against the [VST 3 SDK](https://github.com/steinbergmedia/vst3sdk), embeds its
 editor into the host window through `IPlugView`, and paints that editor itself
 with Cairo and FreeType. There is no plugin framework and no GUI toolkit in the
 build, which lets NAMix keep the original project's **MIT licence**.
+
+It also ships as an **LV2** bundle. The LV2 is not a port: it is the same
+processor and the same panel behind an adapter that lets an LV2 host drive
+them, so both formats share one DSP path, one editor and one state format.
 See [LICENSE](https://github.com/rations/NAMix/blob/master/LICENSE) and
 [NOTICE](https://github.com/rations/NAMix/blob/master/NOTICE) for full details.
 
 ![NAMix standalone](standalone.png)
 ![NAMix Reaper](NAMix-reaper.png)
 
-NAMix ships as two separate binaries:
+NAMix ships as three separate binaries:
 
 | Binary | Use |
 |---|---|
 | `NAMix.vst3` | VST3 plugin — load inside a DAW (REAPER, Ardour, Bitwig, Carla, …) |
+| `NAMix.lv2` | LV2 plugin — the same plugin, for hosts that prefer LV2 (Ardour, Qtractor, Zrythm, Carla, …) |
 | `namix-standalone` | Standalone application — runs without a DAW, connects directly to JACK |
+
+**The VST3 and the LV2 are the same plugin twice** and are interchangeable:
+same DSP, same panel, same state format, so a project saved with one opens
+with the other. Install whichever your host prefers, or both.
 
 ---
 
@@ -48,8 +57,8 @@ Ubuntu 20.04, Debian 11 (Bullseye), RHEL/CentOS 9, and openSUSE Leap 15.x
 ship glibc 2.31–2.34 and will not load these binaries. Users on those systems
 should build from source (see below).
 
-The plugin needs Cairo, FreeType, fontconfig and libX11 at runtime — all are
-present on any desktop Linux install. It does **not** link JACK.
+Both plugins need Cairo, FreeType, fontconfig and libX11 at runtime — all are
+present on any desktop Linux install. Neither links JACK.
 
 The standalone additionally needs the JACK client library (`libjack.so.0`) and
 a running JACK server — `sudo apt install jackd2` on Debian/Devuan/Ubuntu, or
@@ -73,7 +82,8 @@ cd NAMix-*/
 ```
 
 (If you keep several versions side by side, name the one you want instead of
-using the glob.) The directory holds both binaries; install whichever you need.
+using the glob.) The directory holds all three binaries; install whichever you
+need.
 
 **VST3 plugin** — copy into your user VST3 folder:
 
@@ -82,7 +92,24 @@ mkdir -p ~/.vst3
 cp -r NAMix.vst3 ~/.vst3/
 ```
 
-The plugin will appear as **NAMix** in any VST3-capable DAW.
+**LV2 plugin** — copy into your user LV2 folder:
+
+```bash
+mkdir -p ~/.lv2
+cp -r NAMix.lv2 ~/.lv2/
+```
+
+Either way the plugin will appear as **NAMix** in any host that scans that
+folder. Both bundles carry their own icons and fonts, so nothing else needs
+installing.
+
+If a host keeps showing an older version of the LV2, look for a copy shadowing
+this one — a bundle under `/usr/lib/lv2` or `/usr/local/lib/lv2` takes
+precedence over `~/.lv2` in most hosts:
+
+```bash
+ls -d /usr/lib/lv2/NAMix.lv2 /usr/local/lib/lv2/NAMix.lv2 2>/dev/null
+```
 
 **Standalone application** — run it from that same directory, with a JACK
 server already running:
@@ -91,10 +118,10 @@ server already running:
 ./namix-standalone
 ```
 
-To uninstall, remove the installed plugin and the directory you extracted:
+To uninstall, remove the installed plugins and the directory you extracted:
 
 ```bash
-rm -rf ~/.vst3/NAMix.vst3
+rm -rf ~/.vst3/NAMix.vst3 ~/.lv2/NAMix.lv2
 ```
 
 ---
@@ -114,23 +141,36 @@ Required system packages (Debian/Ubuntu):
 
 ```
 build-essential cmake ninja-build pkg-config libcairo2-dev libfreetype-dev
-libfontconfig-dev libx11-dev libjack-jackd2-dev
+libfontconfig-dev libx11-dev libjack-jackd2-dev lv2-dev liblilv-dev
 ```
+
+`lv2-dev` is what builds the LV2 bundle; without it the build skips it and says
+so. `liblilv-dev` is needed only by `namix_lv2check`, the bundle's own test —
+nothing that ships links lilv.
 
 The VST 3 SDK is included as a submodule. To build against a checkout you
 already have, pass `-DVST3_SDK_DIR=/path/to/vst3sdk` instead.
 
-After building, install the VST3:
+After building, install whichever format you want:
 
 ```bash
-mkdir -p ~/.vst3
-cp -r build/VST3/Release/NAMix.vst3 ~/.vst3/
+mkdir -p ~/.vst3 && cp -r build/VST3/Release/NAMix.vst3 ~/.vst3/
+mkdir -p ~/.lv2  && cp -r build/lv2/NAMix.lv2          ~/.lv2/
 ```
 
-Verify the build with Steinberg's validator, which is built alongside it:
+Verify the VST3 with Steinberg's validator, which is built alongside it:
 
 ```bash
 ./build/bin/Release/validator build/VST3/Release/NAMix.vst3
+```
+
+Verify the LV2 bundle with its own gate. It checks what a host actually sees —
+the export surface, the port table read back through lilv, the
+`ui:portNotification` declarations the meters depend on — then installs to
+`~/.lv2`, loads the binary, runs it and round-trips its state:
+
+```bash
+bash scripts/lv2-gate.sh --model ~/path/to/some-capture.nam
 ```
 
 To render the editor panel to a PNG without a host or an X server — useful for

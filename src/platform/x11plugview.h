@@ -124,6 +124,19 @@ protected:
         return mWindow != 0;
     }
 
+public:
+    // The child window this view paints, for a caller that has to hand it to
+    // something other than IPlugView::attached().
+    //
+    // It exists for the LV2 build: ui:X11UI's contract is that the
+    // LV2UI_Widget a UI returns from instantiate() IS an X window id, so the
+    // wrapper has to be able to ask. A VST3 host never needs this — it passes
+    // the parent in and never sees the child.
+    ::Window nativeWindow() const
+    {
+        return mWindow;
+    }
+
 private:
     bool openWindow(::Window parent);
     void closeWindow();

@@ -73,6 +73,13 @@ tresult PLUGIN_API NamController::initialize(FUnknown *context)
     outputMode->appendString(STR16("Normalized"));
     outputMode->appendString(STR16("Calibrated"));
     outputMode->setNormalized(0.5); // default: Normalized
+    // ...and say so in the parameter's own info. StringListParameter takes no
+    // default in its constructor, so defaultNormalizedValue stays 0 (Raw) while
+    // the live value above is Normalized — the two disagree about what "reset
+    // this control" means. Harmless under VST3, where nothing much reads it;
+    // not harmless under LV2, where a host initialises a control port from
+    // lv2:default and namix_ttlgen writes that number straight out of here.
+    outputMode->getInfo().defaultNormalizedValue = 0.5;
     parameters.addParameter(outputMode);
 
     // Slim (0 .. 1, default 0): dynamic size reduction on slimmable (A2)

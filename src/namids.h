@@ -54,6 +54,11 @@ inline constexpr double kCalMin = -60.0, kCalMax = 60.0, kCalDefault = 12.0;
 inline constexpr double kMeterMinDb = -70.0, kMeterMaxDb = 0.0;
 } // namespace ranges
 
+// How many entries kOutputModeId has: Raw, Normalized, Calibrated. Named
+// because a stepped parameter's step count is one less than its entry count,
+// and the LV2 port table has to state both.
+inline constexpr int kOutputModeCount = 3;
+
 // Message IDs for controller -> processor file loading (IConnectionPoint).
 // Attribute "path" carries a UTF-8 byte string (setBinary); empty = clear.
 inline constexpr const char *kMsgLoadModel = "NAMLoadModel";

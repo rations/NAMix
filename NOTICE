@@ -62,6 +62,21 @@ The following component is used under the zlib Licence:
 
 -------------------------------------------------------------------------------
 
+The following specification is used under the ISC Licence:
+
+  LV2                       https://lv2plug.in/
+  Copyright (c) 2006-2024 Steve Harris, David Robillard and others
+
+  The LV2 build compiles against the LV2 headers (the specification's C API)
+  and declares its bundle in the specification's own RDF vocabulary. Nothing
+  from the LV2 project is redistributed in this tree or in the release archive:
+  the headers are a build-time dependency (lv2-dev), and NAMix.lv2 links no LV2
+  library. lilv, which the bundle's test tool namix_lv2check uses to read the
+  installed bundle the way a host does, is ISC-licensed too and is likewise a
+  development dependency only — nothing that ships links it.
+
+-------------------------------------------------------------------------------
+
 The following component is used under the Mozilla Public Licence 2.0:
 
   Eigen                     https://gitlab.com/libeigen/eigen
@@ -88,7 +103,9 @@ A note on AudioDSPTools' Lanczos resampler
 System libraries linked at runtime, not redistributed here: Cairo (LGPL 2.1 /
 MPL 1.1, dynamically linked), FreeType (FTL / GPLv2 dual licence, dynamically
 linked under the FTL), fontconfig (MIT-style), libX11 (MIT), and — for the
-standalone build only — JACK (LGPL 2.1, dynamically linked).
+standalone build only — JACK (LGPL 2.1, dynamically linked). The LV2 bundle
+links the same set as the VST3: its DSP half links neither X11 nor Cairo, and
+neither half links JACK or any LV2 library.
 
 -------------------------------------------------------------------------------
 

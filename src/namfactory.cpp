@@ -10,7 +10,7 @@
 BEGIN_FACTORY_DEF(stringCompanyName, stringCompanyWeb, stringCompanyEmail, 2)
 
 DEF_CLASS(NAMix::NamProcessorUID, Steinberg::PClassInfo::kManyInstances, kVstAudioEffectClass,
-          stringPluginName, Steinberg::Vst::kDistributable, "Fx|Distortion", FULL_VERSION_STR,
+          stringPluginName, Steinberg::Vst::kDistributable, stringSubCategory, FULL_VERSION_STR,
           kVstVersionString, NAMix::NamProcessor::createInstance, nullptr)
 
 DEF_CLASS(NAMix::NamControllerUID, Steinberg::PClassInfo::kManyInstances,
