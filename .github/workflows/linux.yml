@@ -1,0 +1,144 @@
+# Linux build, gates and release package, on both architectures NAMix ships.
+#
+# WHY THIS EXISTS. x86_64 releases are built and gated on the author's own
+# Debian-12-class machine. aarch64 (Raspberry Pi 4/5, Orange Pi 5, arm64
+# laptops) cannot be: there is no ARM hardware on hand, so the ARM build is
+# provable only on a runner of its own architecture. x86_64 rides along as the
+# control: same sources, same image, same compiler, differing only in
+# instruction set, so a failure on one side and not the other points straight at
+# an architecture difference.
+#
+# WHY A DEBIAN CONTAINER ON AN UBUNTU RUNNER. `runs-on:` names the virtual
+# machine, and GitHub hosts no Debian runner for any architecture. Everything
+# that reaches the tarball -- compiler, glibc, libstdc++, cairo, FreeType,
+# fontconfig, libX11, JACK, lv2, lilv -- comes from debian:12. Ubuntu supplies
+# only the kernel, Docker and the git that does the checkout, none of which
+# link into anything. Debian 12 is glibc 2.36, the same floor the x86_64
+# release machine produces, so both tarballs run on the same distributions; a
+# bare ubuntu-24.04 runner (glibc 2.39) would raise that floor. Debian 12's
+# cmake is 3.25.1, against this project's cmake_minimum_required of 3.25.0.
+#
+# WHAT THIS DOES NOT COVER on aarch64:
+#   1. No model is loaded: the repository ships no .nam captures, so nothing
+#      here proves the ARM build SOUNDS right -- only that it builds, passes the
+#      SDK validator and the LV2 gate, and packages. scripts/lv2-gate.sh --model
+#      on a real board closes that.
+#   2. No live audio, no JACK server, no xrun count, no CPU-cost figure. Whether
+#      a given capture runs in real time on a Pi is a measurement for a board.
+name: Linux
+
+# Every push on every branch, except commits that cannot change the build. The
+# list says what to IGNORE rather than what to match, so a forgotten entry costs
+# a spare run instead of silently skipping a check.
+on:
+  push:
+    branches: ['**']
+    paths-ignore: &docs_only
+      - '**.md'
+      - 'LICENSE'
+      - 'NOTICE'
+      - '.gitignore'
+      # Asset import scripts: they write into resources/, which is tracked, so
+      # running one is a commit to resources/ and that does trigger a build.
+      - 'gui/**'
+  pull_request:
+    paths-ignore: *docs_only
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.arch }} (${{ matrix.runner }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      # Both architectures always run to completion: when one fails and the
+      # other does not, that difference is the finding.
+      fail-fast: false
+      matrix:
+        include:
+          # GitHub-hosted arm64 runner, free for public repositories.
+          # ubuntu-22.04-arm also exists but is being retired. Check labels
+          # against https://github.com/actions/runner-images before changing.
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+          - runner: ubuntu-24.04
+            arch: x86_64
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Checkout and submodules run on the HOST, where git and the Actions
+      # agent already are; only the build needs the Debian ABI, so only the
+      # build goes into the container.
+      #
+      # Never `--recursive`. The SDK carries seven submodules and this build
+      # needs four (doc, tutorials and vstgui4 are unused -- the editor is drawn
+      # directly). AudioDSPTools and NeuralAmpModelerCore each declare nested
+      # copies of trees the root already has (eigen, AudioDSPTools), which the
+      # build never reads.
+      - name: Submodules
+        run: |
+          git submodule update --init NeuralAmpModelerCore AudioDSPTools eigen vst3sdk
+          git -C vst3sdk submodule update --init base cmake pluginterfaces public.sdk
+
+      # One container run does the whole build, because makedist-linux.sh IS
+      # the release build: it configures, builds, strips, runs the LV2 export
+      # and linkage checks on the staged bundle, and writes the tarball. There
+      # is no CI-only packaging code here, so what CI gates is what a release
+      # ships. The SDK validator and the LV2 gate then run on that same build.
+      # None of it needs an X display or a JACK server.
+      - name: Build, gate and package inside Debian 12
+        run: |
+          docker run --rm -i \
+            -v "$PWD:/src" -w /src \
+            "debian:12" \
+            bash -euo pipefail -s <<'CONTAINER'
+          export DEBIAN_FRONTEND=noninteractive
+          apt-get update -qq
+
+          # Build tools, then one dev package per pkg_check_modules() entry in
+          # CMakeLists.txt: cairo/cairo-ft/cairo-xlib come from libcairo2-dev;
+          # lv2 builds NAMix.lv2; lilv-0 builds namix_lv2check for the LV2 gate;
+          # jack builds the standalone. makedist-linux.sh refuses to package
+          # without the LV2 bundle and the standalone, so none is optional.
+          apt-get install -y --no-install-recommends \
+            build-essential cmake ninja-build pkg-config ca-certificates \
+            libcairo2-dev libfreetype-dev libfontconfig-dev libx11-dev \
+            libjack-jackd2-dev lv2-dev liblilv-dev
+
+          # No `| head -1` on these: under pipefail, head closing the pipe early
+          # kills ldd with SIGPIPE (status 141) and errexit ends the job.
+          echo "== toolchain and ABI floor =="
+          cc --version
+          cmake --version
+          ldd --version
+          uname -m
+
+          scripts/makedist-linux.sh
+
+          echo "== VST3 SDK validator =="
+          ./build/bin/Release/validator ./build/VST3/Release/NAMix.vst3
+
+          # Installs into the container's own ~/.lv2, which is thrown away.
+          echo "== LV2 gate =="
+          scripts/lv2-gate.sh
+          CONTAINER
+
+      # The container ran as root, so everything it wrote is root-owned and the
+      # upload action, which does not run as root, cannot read it.
+      - name: Hand the workspace back to the runner
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" .
+
+      # An artifact and not a release: the aarch64 build has never run on real
+      # hardware, so it is attached to a release by hand once someone has
+      # heard it on a board.
+      - name: Upload the release package
+        uses: actions/upload-artifact@v6
+        with:
+          name: NAMix-linux-${{ matrix.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error

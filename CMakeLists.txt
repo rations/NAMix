@@ -14,7 +14,7 @@
 cmake_minimum_required(VERSION 3.25.0)
 
 project(smtg-namix
-    VERSION 0.8.0
+    VERSION 0.9.0
     DESCRIPTION "NAMix neural amp modeler VST3 for Linux"
 )
 
@@ -27,10 +27,20 @@ if(NOT TARGET sdk)
             "'git submodule update --init --recursive' or set -DVST3_SDK_DIR=<path>")
     endif()
 
-    # Headless SDK: core libraries plus the validator (part of the hosting
-    # examples), no VSTGUI (we draw the editor ourselves), no plug-in examples.
+    # Headless SDK: core libraries plus the validator, no VSTGUI (we draw the
+    # editor ourselves), no plug-in examples and no hosting examples.
+    #
+    # The validator is NOT gated by SMTG_ENABLE_VST3_HOSTING_EXAMPLES:
+    # vst3sdk/CMakeLists.txt adds public.sdk/samples/vst-hosting unconditionally,
+    # and only editorhost/ and audiohost/ open with that if(). What the option
+    # does buy is editorhost, which on Linux is pkg_check_modules(GTK3 REQUIRED
+    # gtk+-3.0) plus gtkmm-3.0 — so with it ON, a build machine without GTK
+    # development files (the CI container) cannot even configure. The standalone
+    # compiles editorhost's usediids.cpp by path, which needs the file, not the
+    # target.
     set(SMTG_ENABLE_VSTGUI_SUPPORT OFF CACHE BOOL "editor is drawn directly" FORCE)
-    set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES ON CACHE BOOL "validator" FORCE)
+    set(SMTG_ENABLE_VST3_HOSTING_EXAMPLES OFF CACHE BOOL
+        "editorhost wants GTK; the validator is not gated by this" FORCE)
     set(SMTG_ENABLE_VST3_PLUGIN_EXAMPLES OFF CACHE BOOL "plug-in examples not needed" FORCE)
     set(SMTG_RUN_VST_VALIDATOR OFF CACHE BOOL "run manually instead" FORCE)
     set(SMTG_CREATE_PLUGIN_LINK OFF CACHE BOOL "install manually instead" FORCE)
@@ -98,6 +108,17 @@ add_library(NamDsp STATIC
 )
 
 target_compile_definitions(NamDsp PUBLIC NAM_ENABLE_A2_FAST)
+
+# AudioDSPTools' vendored WDL (reached through ResamplingContainer.h ->
+# ptrlist.h -> heapbuf.h -> wdltypes.h) asserts that plain char is SIGNED, as a
+# negative-sized typedef. That holds on x86 and fails on AArch64, where the
+# procedure call standard makes plain char unsigned, so every translation unit
+# that includes the resampler fails to compile there. WDL provides this macro to
+# waive the check. It is safe here because those three headers are the whole
+# WDL subset in the graph, and every char in them is a string, a byte buffer, a
+# memset cast or WDL_bool — none compares, sign-extends or indexes by a char.
+# Unconditional: on x86 the typedef can never fire, so a gate would buy nothing.
+target_compile_definitions(NamDsp PUBLIC WDL_ALLOW_UNSIGNED_DEFAULT_CHAR)
 
 target_include_directories(NamDsp PUBLIC
     ${NAMIX_ROOT}/NeuralAmpModelerCore

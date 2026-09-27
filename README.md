@@ -70,14 +70,24 @@ those are only for building from source.
 
 ## Installing the pre-built release
 
-Download the `NAMix-<version>-linux-x86_64.tar.gz` asset from the
-[latest release](https://github.com/rations/NAMix/releases/latest).
+Download the asset for your machine from the
+[latest release](https://github.com/rations/NAMix/releases/latest):
+
+| Machine | Asset |
+|---------|-------|
+| Intel/AMD PC (`uname -m` says `x86_64`) | `NAMix-<version>-linux-x86_64.tar.gz` |
+| 64-bit ARM — Raspberry Pi 4/5, Orange Pi 5, arm64 laptops (`uname -m` says `aarch64`) | `NAMix-<version>-linux-aarch64.tar.gz` |
+
+Both are built against Debian 12 (glibc 2.36), so they run on Debian 12 /
+Devuan 5 or newer and equivalents. The aarch64 build is produced by CI on an ARM
+runner; it builds and passes the same gates as x86_64 but has not yet been
+tested on a board, so reports are welcome.
 
 Extract it and enter the directory it creates — the version is part of both
 names, so let the shell fill it in:
 
 ```bash
-tar -xzf NAMix-*-linux-x86_64.tar.gz
+tar -xzf NAMix-*-linux-$(uname -m).tar.gz
 cd NAMix-*/
 ```
 
