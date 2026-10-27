@@ -10,6 +10,7 @@
 #include <X11/keysym.h>
 
 #include <atomic>
+#include <cmath>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -261,6 +262,41 @@ tresult PLUGIN_API X11PlugView::attached(void *parent, FIDString type)
 }
 
 //------------------------------------------------------------------------
+tresult PLUGIN_API X11PlugView::onSize(ViewRect *newSize)
+{
+    if (!newSize || newSize->getWidth() <= 0 || newSize->getHeight() <= 0)
+        return kInvalidArgument;
+    const tresult result = Vst::EditorView::onSize(newSize);
+    if (result != kResultTrue && result != kResultOk)
+        return result;
+    resizeSurfaces(static_cast<unsigned>(newSize->getWidth()),
+                   static_cast<unsigned>(newSize->getHeight()));
+    return kResultTrue;
+}
+
+// Keep the panel's 3:2 layout intact while allowing the host to resize the
+// editor. Whichever dimension changed less determines the resulting size.
+tresult PLUGIN_API X11PlugView::checkSizeConstraint(ViewRect *requested)
+{
+    if (!requested)
+        return kInvalidArgument;
+    constexpr double aspect = 1.5;
+    const int width = requested->getWidth();
+    const int height = requested->getHeight();
+    if (width <= 0 || height <= 0)
+        return kResultFalse;
+
+    const int constrainedWidth = static_cast<int>(std::lround(height * aspect));
+    const int constrainedHeight = static_cast<int>(std::lround(width / aspect));
+    const ViewRect &current = getRect();
+    if (std::abs(width - current.getWidth()) >= std::abs(height - current.getHeight()))
+        requested->right = requested->left + constrainedWidth;
+    else
+        requested->bottom = requested->top + constrainedHeight;
+    return kResultTrue;
+}
+
+//------------------------------------------------------------------------
 void X11PlugView::trace(const char *fmt, ...) const
 {
     if (!mTrace)
@@ -502,6 +538,9 @@ bool X11PlugView::openWindow(::Window parent)
         closeWindow();
         return false;
     }
+    mSurfaceWidth = width;
+    mSurfaceHeight = height;
+    onResize(static_cast<int>(width), static_cast<int>(height));
 
     return true;
 }
@@ -714,6 +753,16 @@ void X11PlugView::drainEvents()
             continue;
 
         switch (event.type) {
+            case ConfigureNotify:
+                if (event.xconfigure.width > 0 && event.xconfigure.height > 0 &&
+                    (static_cast<unsigned>(event.xconfigure.width) != mSurfaceWidth ||
+                     static_cast<unsigned>(event.xconfigure.height) != mSurfaceHeight)) {
+                    resizeSurfaces(static_cast<unsigned>(event.xconfigure.width),
+                                   static_cast<unsigned>(event.xconfigure.height));
+                    mDirty = true;
+                }
+                break;
+
             case Expose:
                 // Coalesce: only the last expose in a burst needs a repaint,
                 // and the repaint itself happens on the next tick.
@@ -877,6 +926,35 @@ void X11PlugView::ensureMapped()
 }
 
 //------------------------------------------------------------------------
+void X11PlugView::resizeSurfaces(unsigned width, unsigned height)
+{
+    if (!mDisplay || !mWindow || width == 0 || height == 0 ||
+        (width == mSurfaceWidth && height == mSurfaceHeight))
+        return;
+
+    // The host has already resized the embedded X window before onSize() or
+    // ConfigureNotify arrives. Sending another XResizeWindow here feeds a
+    // second resize back into the host while it is dragging the frame and can
+    // leave stale/interleaved ConfigureNotify events behind.
+    if (mTarget)
+        cairo_xlib_surface_set_size(mTarget, static_cast<int>(width), static_cast<int>(height));
+    if (mBuffer)
+        cairo_surface_destroy(mBuffer);
+    mBuffer = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, static_cast<int>(width),
+                                         static_cast<int>(height));
+    if (cairo_surface_status(mBuffer) != CAIRO_STATUS_SUCCESS) {
+        fprintf(stderr, "NAMix: cannot resize the editor drawing buffer\n");
+        cairo_surface_destroy(mBuffer);
+        mBuffer = nullptr;
+        return;
+    }
+    mSurfaceWidth = width;
+    mSurfaceHeight = height;
+    onResize(static_cast<int>(width), static_cast<int>(height));
+    mDirty = true;
+}
+
+//------------------------------------------------------------------------
 void X11PlugView::redraw()
 {
     if (!mBuffer || !mTarget || !mDisplay)
@@ -891,8 +969,13 @@ void X11PlugView::redraw()
 
     // Compose into the offscreen buffer...
     cairo_t *cr = cairo_create(mBuffer);
-    if (cairo_status(cr) == CAIRO_STATUS_SUCCESS)
+    if (cairo_status(cr) == CAIRO_STATUS_SUCCESS) {
+        cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
+        cairo_set_source_rgb(cr, 0.0, 0.0, 0.0);
+        cairo_paint(cr);
+        cairo_set_operator(cr, CAIRO_OPERATOR_OVER);
         onDraw(cr);
+    }
     cairo_destroy(cr);
 
     // ...then blit it to the window in one operation, so no partially drawn

@@ -321,10 +321,9 @@ bool writePluginTtl(const std::string &path, const std::vector<PortInfo> &ports)
         "# capabilities and the plug-in's state to the editor.\n"
         "#\n"
         "# ui:resize is deprecated in the specification and is still the only way a UI can\n"
-        "# state its size, so it is declared OPTIONAL: the editor asks once at startup and\n"
-        "# carries on without it. ui:noUserResize IS declared, because this editor is a fixed\n"
-        "# size — X11PlugView does not override canResize, so the VST3 build tells a host the\n"
-        "# same thing.\n",
+        "# state its preferred initial size, so it is declared OPTIONAL: the editor asks once at\n"
+        "# startup and carries on without it. User resizing is supported, so ui:noUserResize is\n"
+        "# intentionally omitted.\n",
         kPortFeedbackFirst, kPortFeedbackFirst + kFeedbackCount - 1, kPortAtomOut);
     fprintf(f,
             "<%s>\n\ta ui:X11UI ;\n\tlv2:binary <NAMix_ui.so> ;\n\tui:binary <NAMix_ui.so> ;\n"
@@ -339,8 +338,7 @@ bool writePluginTtl(const std::string &path, const std::vector<PortInfo> &ports)
                 "\t\tui:protocol ui:floatProtocol\n\t]",
                 kPluginUri, kPortFeedbackFirst + static_cast<std::uint32_t>(i));
     }
-    fprintf(f, " ;\n\tlv2:extensionData ui:idleInterface ;\n"
-               "\tlv2:portProperty ui:noUserResize .\n\n");
+    fprintf(f, " ;\n\tlv2:extensionData ui:idleInterface .\n\n");
 
     // --- the plug-in -----------------------------------------------------
     //

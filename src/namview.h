@@ -52,6 +52,7 @@ protected:
 
     //---from X11PlugView-------------
     void onAttached() SMTG_OVERRIDE;
+    void onResize(int width, int height) SMTG_OVERRIDE;
     void onRemoved() SMTG_OVERRIDE;
     void onDraw(cairo_t *cr) SMTG_OVERRIDE;
     void onMouseDown(int x, int y, int button, unsigned mods, bool doubleClick) SMTG_OVERRIDE;
@@ -123,6 +124,8 @@ private:
     }
 
     NamController *mController = nullptr;
+    float mUiScale = geo::kDefaultUiScale;
+    float mUiOffsetX = 0, mUiOffsetY = 0;
 
     FontStack mFonts;
     ImageCache mImages;

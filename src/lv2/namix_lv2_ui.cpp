@@ -26,8 +26,8 @@
 // WHAT AN LV2 HOST DOES WITH THE WINDOW, verified against suil rather than assumed: suil's
 // x11_in_gtk3.c forward_size_request() reads the child's XSizeHints with XGetNormalHints, clamps
 // its allocation to them, and XResizeWindows the child. So the hints are how a UI states its
-// limits. This editor is a fixed size — X11PlugView does not override canResize — so the hints it
-// sets are min == max, which is the strongest thing it can say.
+// limits. The editor publishes its initial size as a minimum and leaves the maximum open, so a
+// host can expand the X11 child and the shared view can resize its drawing surfaces accordingly.
 
 #include "lv2message.h"
 #include "namixlv2.h"
@@ -444,9 +444,8 @@ void NamixUi::close()
 // XSizeHints and clamps its allocation to them before resizing us (src/x11_in_gtk3.c,
 // forward_size_request).
 //
-// This editor is a fixed size, so min == max == the editor's own rectangle. X11PlugView does not
-// override canResize, which means CPluginView::canResize returns kResultFalse and the VST3 build
-// tells its host exactly the same thing.
+// The editor can grow past its initial size. Keep a 1x canvas as the minimum, but omit a maximum
+// so LV2 hosts such as REAPER can allocate the UI to a larger FX window.
 void NamixUi::applySizeHints()
 {
     if (!mHintDisplay || !mView)
@@ -460,9 +459,9 @@ void NamixUi::applySizeHints()
         return;
 
     XSizeHints hints = {};
-    hints.flags = PMinSize | PMaxSize;
-    hints.min_width = hints.max_width = size.getWidth();
-    hints.min_height = hints.max_height = size.getHeight();
+    hints.flags = PMinSize;
+    hints.min_width = geo::kWinW;
+    hints.min_height = geo::kWinH;
     XSetWMNormalHints(mHintDisplay, window, &hints);
     XFlush(mHintDisplay);
 }

@@ -128,9 +128,12 @@ int main(int argc, char **argv)
     SvgCache svgs;
     svgs.setResourceDir(res);
 
-    cairo_surface_t *surface =
-        cairo_image_surface_create(CAIRO_FORMAT_ARGB32, geo::kWinW, geo::kWinH);
+    const float scale = geo::uiScale();
+    const int width = static_cast<int>(std::lround(geo::kWinW * scale));
+    const int height = static_cast<int>(std::lround(geo::kWinH * scale));
+    cairo_surface_t *surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, width, height);
     cairo_t *cr = cairo_create(surface);
+    cairo_scale(cr, scale, scale);
     Canvas c(cr, &fonts, geo::kWinW, geo::kWinH);
 
     // --- backdrop + line overlay ---
@@ -267,7 +270,7 @@ int main(int argc, char **argv)
     if (!fontsOk)
         ++missing;
 
-    printf("panelrender: wrote %s (%dx%d)\n", outPath, geo::kWinW, geo::kWinH);
+    printf("panelrender: wrote %s (%dx%d)\n", outPath, width, height);
     if (missing) {
         fprintf(stderr, "panelrender: %d asset(s) failed to load\n", missing);
         return 1;

@@ -60,6 +60,9 @@ public:
     //---from CPluginView-------------
     tresult PLUGIN_API isPlatformTypeSupported(FIDString type) SMTG_OVERRIDE;
     tresult PLUGIN_API attached(void *parent, FIDString type) SMTG_OVERRIDE;
+    tresult PLUGIN_API onSize(ViewRect *newSize) SMTG_OVERRIDE;
+    tresult PLUGIN_API canResize() SMTG_OVERRIDE { return kResultTrue; }
+    tresult PLUGIN_API checkSizeConstraint(ViewRect *rect) SMTG_OVERRIDE;
     void attachedToParent() SMTG_OVERRIDE;
     void removedFromParent() SMTG_OVERRIDE;
 
@@ -91,6 +94,12 @@ protected:
 
     // Paint the whole editor. `cr` targets the offscreen buffer.
     virtual void onDraw(cairo_t *cr) = 0;
+
+    // The host changed the embedded window's physical pixel dimensions.
+    virtual void onResize(int width, int height)
+    {
+        (void)width, (void)height;
+    }
 
     // Pointer input. Buttons are X button numbers (1 = left, 2 = middle,
     // 3 = right). Wheel steps arrive as delta +1 (up) or -1 (down). `mods`
@@ -173,6 +182,7 @@ private:
     void redraw();
     void mapWindow();
     void ensureMapped();
+    void resizeSurfaces(unsigned width, unsigned height);
 
     // Diagnostics, enabled by setting NAMIX_X11_TRACE in the environment. They
     // exist because the embedding contract is host-specific and only partly
@@ -191,6 +201,7 @@ private:
     Atom mXEmbedInfoAtom = None;
     cairo_surface_t *mTarget = nullptr; // xlib surface for mWindow
     cairo_surface_t *mBuffer = nullptr; // offscreen image surface
+    unsigned mSurfaceWidth = 0, mSurfaceHeight = 0;
 
     IPtr<Linux::IRunLoop> mRunLoop;
     bool mEventHandlerRegistered = false;

@@ -12,6 +12,9 @@
 
 #include "pluginterfaces/vst/vsttypes.h"
 
+#include <cmath>
+#include <cstdlib>
+
 namespace NAMix
 {
 namespace geo
@@ -21,6 +24,21 @@ namespace geo
 constexpr int kWinW = 600;
 constexpr int kWinH = 400;
 
+// The editor uses logical 600x400 coordinates. The host window and Cairo
+// device space are enlarged together; NAMIX_UI_SCALE can override this for
+// HiDPI setups (valid range 1.0..3.0).
+constexpr float kDefaultUiScale = 1.5f;
+inline float uiScale()
+{
+    const char *value = std::getenv("NAMIX_UI_SCALE");
+    if (!value || !*value)
+        return kDefaultUiScale;
+    char *end = nullptr;
+    const float scale = std::strtof(value, &end);
+    return end != value && *end == '\0' && std::isfinite(scale) && scale >= 1.0f && scale <= 3.0f
+               ? scale
+               : kDefaultUiScale;
+}
 // Palette (geometry.sh; from the original Colors.h). 0xRRGGBB.
 constexpr uint32_t kBgColor = 0x1D1A1F;   // raisin-black backdrop
 constexpr uint32_t kAzure = 0x5085E8;     // theme accent

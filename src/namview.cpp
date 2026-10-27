@@ -92,7 +92,9 @@ const char *baseName(const std::string &path)
 NamEditorView::NamEditorView(NamController *controller)
     : X11PlugView(static_cast<Vst::EditController *>(controller)), mController(controller)
 {
-    ViewRect size(0, 0, geo::kWinW, geo::kWinH);
+    mUiScale = geo::uiScale();
+    ViewRect size(0, 0, static_cast<int>(std::lround(geo::kWinW * mUiScale)),
+                  static_cast<int>(std::lround(geo::kWinH * mUiScale)));
     setRect(size);
 }
 
@@ -109,6 +111,18 @@ void NamEditorView::onAttached()
     mImages.setResourceDir(res);
     mSvgs.setResourceDir(res);
     mResourcesLoaded = true;
+}
+
+// Fit the 3:2 logical canvas into the current host allocation without
+// distorting the panel. Any extra area becomes a clean black letterbox.
+void NamEditorView::onResize(int width, int height)
+{
+    if (width <= 0 || height <= 0)
+        return;
+    mUiScale = std::min(static_cast<float>(width) / geo::kWinW,
+                        static_cast<float>(height) / geo::kWinH);
+    mUiOffsetX = (width - geo::kWinW * mUiScale) * 0.5f;
+    mUiOffsetY = (height - geo::kWinH * mUiScale) * 0.5f;
 }
 
 // The window is going: drop an open field without applying it, and hand the
@@ -165,6 +179,8 @@ bool NamEditorView::hitCircle(float x, float y, float cx, float cy, float r)
 //------------------------------------------------------------------------
 void NamEditorView::onDraw(cairo_t *cr)
 {
+    cairo_translate(cr, mUiOffsetX, mUiOffsetY);
+    cairo_scale(cr, mUiScale, mUiScale);
     Canvas c(cr, &mFonts, geo::kWinW, geo::kWinH);
     compose(c);
 }
@@ -636,7 +652,8 @@ void NamEditorView::onMouseDown(int x, int y, int button, unsigned /*mods*/, boo
 {
     if (button != 1) // left button only, as on the original
         return;
-    const float fx = static_cast<float>(x), fy = static_cast<float>(y);
+    const float fx = (static_cast<float>(x) - mUiOffsetX) / mUiScale;
+    const float fy = (static_cast<float>(y) - mUiOffsetY) / mUiScale;
     mMouseX = fx;
     mMouseY = fy;
 
@@ -742,11 +759,11 @@ void NamEditorView::onMouseDown(int x, int y, int button, unsigned /*mods*/, boo
 // the way back.
 void NamEditorView::onMouseMove(int x, int y, unsigned mods)
 {
-    mMouseX = static_cast<float>(x);
-    mMouseY = static_cast<float>(y);
+    mMouseX = (static_cast<float>(x) - mUiOffsetX) / mUiScale;
+    mMouseY = (static_cast<float>(y) - mUiOffsetY) / mUiScale;
     if (!mDragParam || !mController)
         return;
-    const float fy = static_cast<float>(y);
+    const float fy = (static_cast<float>(y) - mUiOffsetY) / mUiScale;
     const float range = mDragRange * (isFine(mods) ? kFineDragFactor : 1.0f);
     mDragNorm += static_cast<double>(mDragLastY - fy) / range;
     mDragNorm = mDragNorm < 0.0 ? 0.0 : (mDragNorm > 1.0 ? 1.0 : mDragNorm);
@@ -770,7 +787,8 @@ void NamEditorView::onMouseUp(int /*x*/, int /*y*/, int button)
 // Wheel adjusts whatever is under the cursor (wheel up = increase).
 void NamEditorView::onMouseWheel(int x, int y, int delta, unsigned mods)
 {
-    const float fx = static_cast<float>(x), fy = static_cast<float>(y);
+    const float fx = (static_cast<float>(x) - mUiOffsetX) / mUiScale;
+    const float fy = (static_cast<float>(y) - mUiOffsetY) / mUiScale;
     const bool fine = isFine(mods);
     const double step = delta * (fine ? kFineWheelStep : kWheelStep);
 
